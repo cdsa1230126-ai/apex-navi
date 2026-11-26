@@ -26,10 +26,11 @@
       </div>
     </header>
 
-    <!-- 2. 本物の目的地検索＆ルート生成バー -->
+    <!-- 2. 目的地検索＆大通り優先オプションバー -->
     <div class="search-bar-wrap">
       <input type="text" class="dest-input" id="destInput" placeholder="目的地を入力 (例: 箱根大観山, 江ノ島, 宮ヶ瀬ダム)" />
-      <button class="route-go-btn" id="routeActionBtn" onclick="searchAndRoute()">ルート検索</button>
+      <button class="major-road-toggle active" id="majorRoadBtn" onclick="toggleMajorRoadMode()" title="細い生活道路を避けて幹線道路を優先">🛣️ 大通り優先</button>
+      <button class="route-go-btn" id="routeActionBtn" onclick="searchAndRoute()">検索</button>
     </div>
 
     <!-- 3. 先読みアクションカード ＋ 暖簾（プルダウン）式・道の案内一覧 -->
@@ -37,7 +38,7 @@
       <section class="guidance-card standby" id="guidanceCard" onclick="toggleRouteDropdown()">
         <div class="guidance-top">
           <div class="signal-counter">
-            <span id="signalLabel">📍 フリー走行モード（目的地未設定）</span>
+            <span id="signalLabel">📍 フリー走行モード（大通り優先・狭路回避ON）</span>
             <div class="signal-dots" id="signalDots"></div>
           </div>
           <div class="guidance-right-meta">
@@ -56,14 +57,12 @@
       <!-- カードの真下に暖簾のように垂れ下がる案内一覧ドロワー -->
       <div class="noren-dropdown" id="routeNorenDropdown">
         <div class="noren-caption" id="routeListSub">タップするとその地点へ移動＆音声再生（上のカード再タップで収納）</div>
-        <div class="route-steps-scroll" id="routeStepsContainer">
-          <!-- JSで道の案内一覧を自動生成 -->
-        </div>
+        <div class="route-steps-scroll" id="routeStepsContainer"></div>
       </div>
     </div>
 
     <!-- 4. Googleマップ風ベクター地図＆各種HUD -->
-    <main class="map-viewport">
+    <main class="map-viewport" id="mapViewport">
       <!-- インカム字幕オーバーレイ -->
       <div class="intercom-toast" id="intercomToast">
         <span style="font-size:17px;flex-shrink:0;">🎧</span>
@@ -81,10 +80,11 @@
       <div class="map-controls">
         <button class="map-mini-btn menu-toggle-btn" id="menuToggleBtn" onclick="toggleMapMenu()">⚙️ メニュー</button>
         <div class="map-menu-drawer" id="mapMenuDrawer">
-          <button class="map-mini-btn tut-btn" onclick="openTutorial(0); toggleMapMenu(false)">🎮 チュートリアル</button>
+          <button class="map-mini-btn theme-btn" id="mapThemeBtn" onclick="toggleMapTheme()">☀️ 地図: 昼モード</button>
           <button class="map-mini-btn style-btn" id="tiltModeBtn" onclick="togglePitchView()">📐 視点: ナビ3D</button>
           <button class="map-mini-btn active" id="headingModeBtn" onclick="toggleHeadingUp()">🧭 ヘディングUP</button>
           <button class="map-mini-btn" id="recenterBtn" onclick="recenterMap()">🎯 現在地へ戻る</button>
+          <button class="map-mini-btn tut-btn" onclick="openTutorial(0); toggleMapMenu(false)">🎮 チュートリアル</button>
           <button class="map-mini-btn sos" id="sosHoldBtn"
             onpointerdown="startSosHold()"
             onpointerup="cancelSosHold()"
@@ -112,6 +112,7 @@
 
     <!-- クイックツールバー -->
     <nav class="quick-strip">
+      <button class="chip-btn" id="quickThemeBtn" onclick="toggleMapTheme()">🌙 夜間ダーク</button>
       <button class="chip-btn" onclick="searchNearbyPOI('fuel')">⛽ 周辺GS</button>
       <button class="chip-btn" onclick="searchNearbyPOI('convenience')">🏪 コンビニ</button>
       <button class="chip-btn" onclick="searchNearbyPOI('toilets')">🚻 トイレ/道の駅</button>
@@ -123,7 +124,7 @@
 
     <!-- 5. グローブ対応・大型コントロールフッター -->
     <footer class="glove-footer">
-      <button class="glove-btn primary" id="mainNextBtn" onclick="triggerNextStep()">
+      <button class="glove-btn standby-btn" id="mainNextBtn" onclick="triggerNextStep()">
         <span id="mainNextLabel">🔍 目的地を入力</span>
         <span class="sub" id="mainNextSub">案内待機中</span>
       </button>

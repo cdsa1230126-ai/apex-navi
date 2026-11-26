@@ -13,8 +13,18 @@ let watchId = null;
 let isGpsActive = false;
 let isRouteActive = false;
 let isNorenOpen = false;
+let isMajorRoadPriority = true; // 大通り優先（狭路回避）ON
 let activeDestName = "";
 let wakeLock = null;
+
+// 時間帯に応じた自動ダーク地図判定（17:30〜翌5:30は夜間省電力ダークモード）
+const initialHour = new Date().getHours();
+let isDarkMap = initialHour >= 18 || initialHour < 6;
+
+const MAP_STYLES = {
+  day: "https://tiles.openfreemap.org/styles/positron",
+  night: "https://tiles.openfreemap.org/styles/dark"
+};
 
 // 気象＆テレメトリーデータ
 let realTempC = 16;
@@ -28,6 +38,9 @@ let maxLeanRight = 0;
 let rideStartTime = Date.now();
 let lastWeatherFetch = 0;
 let lastRestAlertMin = 0;
+
+// ルート座標キャッシュ（地図スタイル切替時の再描画用）
+let currentRouteGeoJson = null;
 
 // ==========================================
 // 2. 右上メニュー開閉＆SOS長押し安全ロック
@@ -159,11 +172,11 @@ function runTutorialStep() {
 }
 
 // ==========================================
-// 4. Googleマップ風シンプル・ベクター地図
+// 4. Googleマップ風ベクター地図（昼＆夜間省電力ダーク切替対応）
 // ==========================================
 const map = new maplibregl.Map({
   container: "vectorMap",
-  style: "https://tiles.openfreemap.org/styles/positron",
+  style: isDarkMap ? MAP_STYLES.night : MAP_STYLES.day,
   center: [currentLng, currentLat],
   zoom: 15.5,
   pitch: 45,
@@ -185,41 +198,93 @@ let generatedSteps = [];
 let currentStepIdx = 0;
 let trackCoords = [[currentLng, currentLat]];
 
+function setupRouteAndTrackLayers() {
+  if (!map.getSource("route-source")) {
+    map.addSource("route-source", {
+      type: "geojson",
+      data: currentRouteGeoJson || { type: "Feature", geometry: { type: "LineString", coordinates: [] } }
+    });
+  }
+
+  if (!map.getLayer("route-casing")) {
+    map.addLayer({
+      id: "route-casing",
+      type: "line",
+      source: "route-source",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": isDarkMap ? "#0d47a1" : "#174ea6",
+        "line-width": 12
+      }
+    });
+  }
+
+  if (!map.getLayer("route-line")) {
+    map.addLayer({
+      id: "route-line",
+      type: "line",
+      source: "route-source",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": isDarkMap ? "#38bdf8" : "#4285f4",
+        "line-width": 7
+      }
+    });
+  }
+
+  if (!map.getSource("track-source")) {
+    map.addSource("track-source", {
+      type: "geojson",
+      data: { type: "Feature", geometry: { type: "LineString", coordinates: trackCoords } }
+    });
+  }
+
+  if (!map.getLayer("track-line")) {
+    map.addLayer({
+      id: "track-line",
+      type: "line",
+      source: "track-source",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": "#00e676", "line-width": 4, "line-dasharray": [2, 1] }
+    });
+  }
+}
+
 map.on("load", () => {
-  map.addSource("route-source", {
-    type: "geojson",
-    data: { type: "Feature", geometry: { type: "LineString", coordinates: [] } }
-  });
-
-  map.addLayer({
-    id: "route-casing",
-    type: "line",
-    source: "route-source",
-    layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": "#174ea6", "line-width": 12 }
-  });
-
-  map.addLayer({
-    id: "route-line",
-    type: "line",
-    source: "route-source",
-    layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": "#4285f4", "line-width": 7 }
-  });
-
-  map.addSource("track-source", {
-    type: "geojson",
-    data: { type: "Feature", geometry: { type: "LineString", coordinates: trackCoords } }
-  });
-
-  map.addLayer({
-    id: "track-line",
-    type: "line",
-    source: "track-source",
-    layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": "#00c853", "line-width": 4, "line-dasharray": [2, 1] }
-  });
+  setupRouteAndTrackLayers();
+  syncThemeButtonsUI();
 });
+
+// スタイル切替（昼モード ⇔ 夜間省電力ダークモード）完了時にルート線を再復元
+map.on("style.load", () => {
+  setupRouteAndTrackLayers();
+});
+
+function toggleMapTheme() {
+  isDarkMap = !isDarkMap;
+  map.setStyle(isDarkMap ? MAP_STYLES.night : MAP_STYLES.day);
+  syncThemeButtonsUI();
+  const msg = isDarkMap
+    ? "夜間・省電力ダーク地図に切り替えました。有機EL画面の消費電力と眩しさを抑えます。"
+    : "昼間の高視認ライト地図に切り替えました。";
+  document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
+  speakJapanese(msg);
+}
+
+function syncThemeButtonsUI() {
+  const viewport = document.getElementById("mapViewport");
+  const menuBtn = document.getElementById("mapThemeBtn");
+  const quickBtn = document.getElementById("quickThemeBtn");
+
+  viewport.classList.toggle("night-mode", isDarkMap);
+  if (menuBtn) {
+    menuBtn.textContent = isDarkMap ? "🌙 地図: 夜間ダーク" : "☀️ 地図: 昼モード";
+  }
+  if (quickBtn) {
+    quickBtn.textContent = isDarkMap ? "☀️ 昼マップへ" : "🌙 夜間ダーク";
+    quickBtn.classList.toggle("night-active", isDarkMap);
+  }
+}
 
 map.on("dragstart", () => {
   autoFollow = false;
@@ -255,7 +320,70 @@ function recenterMap() {
 }
 
 // ==========================================
-// 5. 気象API＆走行風体感温度計算
+// 5. 大通り優先（狭路回避）ルートオプション
+// ==========================================
+function toggleMajorRoadMode() {
+  isMajorRoadPriority = !isMajorRoadPriority;
+  const btn = document.getElementById("majorRoadBtn");
+  btn.classList.toggle("active", isMajorRoadPriority);
+  btn.textContent = isMajorRoadPriority ? "🛣️ 大通り優先" : "🛣️ 標準最短";
+
+  if (!isRouteActive) {
+    document.getElementById("signalLabel").textContent = isMajorRoadPriority
+      ? "📍 フリー走行モード（大通り優先・狭路回避ON）"
+      : "📍 フリー走行モード（標準最短ルート設定）";
+  }
+
+  const msg = isMajorRoadPriority
+    ? "大通り優先モードをオンにしました。細い生活道路を避けて幹線道路を優先します。"
+    : "標準の最短ルートモードに切り替えました。";
+  document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
+  speakJapanese(msg);
+
+  // すでに目的地が入力されていれば即座にルートを再計算
+  if (isRouteActive && document.getElementById("destInput").value.trim()) {
+    searchAndRoute();
+  }
+}
+
+// 複数候補ルートから「大通り（幹線道路）の比率が最も高いルート」を選抜するアルゴリズム
+function pickBestRouteForRider(routes) {
+  if (!routes || routes.length === 0) return null;
+  if (!isMajorRoadPriority || routes.length === 1) return routes[0];
+
+  let bestRoute = routes[0];
+  let bestMajorScore = -1;
+
+  routes.forEach((r) => {
+    let majorDistance = 0;
+    let totalDistance = Math.max(1, r.distance);
+
+    if (r.legs && r.legs[0] && r.legs[0].steps) {
+      r.legs[0].steps.forEach((st) => {
+        const ref = st.ref || "";
+        const name = st.name || "";
+        // 国道・県道番号(ref)がある道路や「〜通り」「〜街道」「バイパス」は幹線道路として高く評価
+        const isMajor =
+          ref.length > 0 ||
+          /(国道|県道|都道|府道|道道|バイパス|街道|大通り|幹線|環状)/.test(name);
+        if (isMajor) {
+          majorDistance += st.distance;
+        }
+      });
+    }
+
+    const majorRatio = majorDistance / totalDistance;
+    if (majorRatio > bestMajorScore) {
+      bestMajorScore = majorRatio;
+      bestRoute = r;
+    }
+  });
+
+  return bestRoute;
+}
+
+// ==========================================
+// 6. 気象API＆走行風体感温度計算
 // ==========================================
 async function fetchRealWeather(lat, lng, placeName = null) {
   const now = Date.now();
@@ -321,7 +449,7 @@ function updateWeatherUI() {
 }
 
 // ==========================================
-// 6. ルート検索＆暖簾（プルダウン）式・案内一覧
+// 7. ルート検索＆暖簾（プルダウン）式・案内一覧
 // ==========================================
 function setNorenOpen(openState) {
   isNorenOpen = openState;
@@ -350,8 +478,9 @@ function toggleRouteDropdown() {
 
 function renderNorenList() {
   const subEl = document.getElementById("routeListSub");
+  const modeTag = isMajorRoadPriority ? "【大通り優先】" : "【標準最短】";
   if (activeDestName) {
-    subEl.textContent = `「${activeDestName}」までの案内全${generatedSteps.length}件（タップで移動・再タップで収納）`;
+    subEl.textContent = `${modeTag}「${activeDestName}」までの案内全${generatedSteps.length}件（タップで移動・再タップで収納）`;
   } else {
     subEl.textContent = "先読みシナリオ一覧（タップで切替・上のカード再タップで収納）";
   }
@@ -401,12 +530,10 @@ function resetToStandbyMode() {
   activeDestName = "";
   generatedSteps = [];
   currentStepIdx = 0;
+  currentRouteGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: [] } };
 
   if (map.getSource("route-source")) {
-    map.getSource("route-source").setData({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: [] }
-    });
+    map.getSource("route-source").setData(currentRouteGeoJson);
   }
   if (destMarker) {
     destMarker.remove();
@@ -416,7 +543,9 @@ function resetToStandbyMode() {
   const card = document.getElementById("guidanceCard");
   card.className = "guidance-card standby";
   document.getElementById("listHintPill").style.display = "none";
-  document.getElementById("signalLabel").textContent = "📍 フリー走行モード（目的地未設定）";
+  document.getElementById("signalLabel").textContent = isMajorRoadPriority
+    ? "📍 フリー走行モード（大通り優先・狭路回避ON）"
+    : "📍 フリー走行モード（標準最短ルート設定）";
   document.getElementById("signalDots").innerHTML = "";
   document.getElementById("distTag").textContent = "STANDBY";
   document.getElementById("actionHeadline").textContent = "上の検索欄から目的地を入力して出発";
@@ -434,11 +563,13 @@ function resetToStandbyMode() {
   document.getElementById("mainNextSub").textContent = "案内待機中";
 
   const goBtn = document.getElementById("routeActionBtn");
-  goBtn.textContent = "ルート検索";
+  goBtn.textContent = "検索";
   goBtn.classList.remove("cancel-mode");
   goBtn.onclick = searchAndRoute;
 
-  document.querySelectorAll(".chip-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".chip-btn").forEach(b => {
+    if (b.id !== "quickThemeBtn") b.classList.remove("active");
+  });
 }
 
 async function searchAndRoute() {
@@ -449,8 +580,9 @@ async function searchAndRoute() {
     return;
   }
 
-  speakJapanese(`${query}までのツーリングルートと先読みポイントを検索します。`);
-  document.getElementById("actionHeadline").textContent = `「${query}」へルート計算中...`;
+  const policyLabel = isMajorRoadPriority ? "大通り優先で" : "";
+  speakJapanese(`${query}まで${policyLabel}ツーリングルートを検索します。`);
+  document.getElementById("actionHeadline").textContent = `「${query}」へ${policyLabel}計算中...`;
 
   try {
     const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&accept-language=ja`;
@@ -470,7 +602,9 @@ async function searchAndRoute() {
 
     await fetchRealWeather(destLat, destLng, `${destName} 到着予報`);
 
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${currentLng},${currentLat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true`;
+    // 原付二種(125cc)モード時は自動車専用道・高速道路を除外
+    const excludeParam = bikeClassIdx === 2 ? "&exclude=motorway" : "";
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${currentLng},${currentLat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&alternatives=true${excludeParam}`;
     const routeRes = await fetch(osrmUrl);
     const routeData = await routeRes.json();
 
@@ -480,13 +614,14 @@ async function searchAndRoute() {
       return;
     }
 
-    const route = routeData.routes[0];
+    const route = pickBestRouteForRider(routeData.routes);
+    currentRouteGeoJson = {
+      type: "Feature",
+      geometry: route.geometry
+    };
 
     if (map.getSource("route-source")) {
-      map.getSource("route-source").setData({
-        type: "Feature",
-        geometry: route.geometry
-      });
+      map.getSource("route-source").setData(currentRouteGeoJson);
     }
 
     if (destMarker) destMarker.remove();
@@ -532,7 +667,7 @@ function activateNavModeUI() {
   document.getElementById("mainNextSub").textContent = "音声再生＆進行";
 
   const goBtn = document.getElementById("routeActionBtn");
-  goBtn.textContent = "案内終了";
+  goBtn.textContent = "終了";
   goBtn.classList.add("cancel-mode");
   goBtn.onclick = resetToStandbyMode;
 }
@@ -545,7 +680,7 @@ function buildRiderProactiveSteps(osrmSteps, destName, totalDistMeters) {
     const mod = st.maneuver.modifier || "";
     const type = st.maneuver.type || "";
     const distM = Math.round(st.distance);
-    const roadName = st.name || "幹線道路";
+    const roadName = st.ref ? `${st.ref} ${st.name || ""}`.trim() : (st.name || "幹線道路");
     const loc = st.maneuver.location || null;
 
     if (type === "arrive") {
@@ -640,7 +775,7 @@ function applyGeneratedStep(idx, speak = true) {
 }
 
 // ==========================================
-// 7. 周辺スポット検索 (Overpass API)
+// 8. 周辺スポット検索 (Overpass API)
 // ==========================================
 async function searchNearbyPOI(type) {
   setNorenOpen(false);
@@ -689,7 +824,7 @@ async function searchNearbyPOI(type) {
 }
 
 // ==========================================
-// 8. GPS・ジャイロ・画面スリープ防止
+// 9. GPS・ジャイロ・画面スリープ防止
 // ==========================================
 async function requestWakeLock() {
   try {
@@ -825,7 +960,7 @@ function toggleGPS() {
 }
 
 // ==========================================
-// 9. ユーティリティ・デモ・モーダル制御
+// 10. ユーティリティ・デモ・モーダル制御
 // ==========================================
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
@@ -877,7 +1012,9 @@ function selectScenario(idx) {
   generatedSteps = demoScenarios;
   currentStepIdx = idx;
   activateNavModeUI();
-  document.querySelectorAll(".chip-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".chip-btn").forEach(b => {
+    if (b.id !== "quickThemeBtn") b.classList.remove("active");
+  });
   const btn = document.getElementById(`demoBtn${idx}`);
   if (btn) btn.classList.add("active");
   applyGeneratedStep(idx, true);
@@ -887,7 +1024,7 @@ function triggerNextStep() {
   if (!isRouteActive || generatedSteps.length === 0) {
     const input = document.getElementById("destInput");
     input.focus();
-    speakJapanese("目的地を入力してルート検索を押してください。");
+    speakJapanese("目的地を入力して検索を押してください。");
     return;
   }
   currentStepIdx = (currentStepIdx + 1) % generatedSteps.length;
@@ -901,10 +1038,14 @@ function cycleBikeClass() {
   const label = bikeClasses[bikeClassIdx];
   document.getElementById("bikeClassLabel").textContent = label;
   const msg = bikeClassIdx === 2
-    ? "原付二種モードに切り替えました。自動車専用道路とバイパスを自動で回避します。"
+    ? "原付二種モードに切り替えました。高速道路と自動車専用道を自動で回避します。"
     : `${label.replace(/^.\s/, "")}モードに設定しました。`;
   document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
   speakJapanese(msg);
+
+  if (isRouteActive && document.getElementById("destInput").value.trim()) {
+    searchAndRoute();
+  }
 }
 
 function openLogModal() {
@@ -965,9 +1106,10 @@ function speakJapanese(text) {
 }
 
 // ==========================================
-// 10. 初期起動処理（フリー走行待機モードで開始）
+// 11. 初期起動処理（フリー走行待機モードで開始）
 // ==========================================
 resetToStandbyMode();
+syncThemeButtonsUI();
 fetchRealWeather(currentLat, currentLng, "横浜・みなとみらい付近");
 
 window.addEventListener("load", () => {
