@@ -1,5 +1,14 @@
 // ==========================================
-// 1. ユーザーカスタマイズ可能なナビ案内・高速2倍自動拡張設定
+// 0. PWA Service Worker 登録（ホーム画面アプリ化＆オフラインキャッシュ）
+// ==========================================
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
+
+// ==========================================
+// 1. ユーザーカスタマイズ可能なナビ案内・高速2倍・インカム音声設定
 // ==========================================
 const DEFAULT_NAV_CONFIG = {
   stage1Dist: 1000,       // ① 車線誘導（1回目・一般道基準）
@@ -7,7 +16,10 @@ const DEFAULT_NAV_CONFIG = {
   stage3Dist: 200,        // ③ 減速準備（3回目・一般道基準）
   stage4Dist: 100,        // ④ 直前案内（4回目・一般道基準）
   rerouteDist: 35,        // ルート逸脱リルート判定距離(m)
-  highwayAutoScale: true  // 時速70km以上で案内距離を自動2倍にする
+  highwayAutoScale: true, // 時速70km以上で案内距離を自動2倍にする
+  voiceChime: true,       // 案内前の「ポーン♪」チャイム音
+  voiceRate: 1.10,        // 読み上げ話速 (0.8〜1.5)
+  voicePitch: 1.05        // 声の高さ (0.7〜1.4)
 };
 
 let navConfig = Object.assign(
@@ -101,18 +113,36 @@ function toggleHighwayAutoScale() {
   updateSpeedModeHUD(currentSpeedKmh);
 }
 
+function toggleVoiceChime() {
+  navConfig.voiceChime = !navConfig.voiceChime;
+  syncSettingsSlidersUI();
+  saveNavConfig();
+  if (navConfig.voiceChime) playIntercomChime();
+}
+
 function syncSettingsSlidersUI() {
   document.getElementById("sliderStage1").value = navConfig.stage1Dist;
   document.getElementById("sliderStage2").value = navConfig.stage2Dist;
   document.getElementById("sliderStage3").value = navConfig.stage3Dist;
   document.getElementById("sliderStage4").value = navConfig.stage4Dist;
   document.getElementById("sliderRerouteDist").value = navConfig.rerouteDist;
+  document.getElementById("sliderVoiceRate").value = navConfig.voiceRate;
+  document.getElementById("sliderVoicePitch").value = navConfig.voicePitch;
 
   const hwBtn = document.getElementById("highwayAutoBtn");
   if (hwBtn) {
     hwBtn.classList.toggle("active", navConfig.highwayAutoScale);
     hwBtn.textContent = navConfig.highwayAutoScale ? "ON (自動2倍)" : "OFF (固定)";
   }
+
+  const chimeBtn = document.getElementById("voiceChimeBtn");
+  if (chimeBtn) {
+    chimeBtn.classList.toggle("active", navConfig.voiceChime);
+    chimeBtn.textContent = navConfig.voiceChime ? "ON (チャイム有)" : "OFF (音声のみ)";
+  }
+
+  document.getElementById("valVoiceRate").textContent = `${Number(navConfig.voiceRate).toFixed(2)}倍`;
+  document.getElementById("valVoicePitch").textContent = `${Number(navConfig.voicePitch).toFixed(2)}`;
 
   const hwSuffix = navConfig.highwayAutoScale;
   document.getElementById("valStage1").textContent = hwSuffix
@@ -145,6 +175,8 @@ function onSettingSliderChange() {
   let s3 = Number(document.getElementById("sliderStage3").value);
   let s4 = Number(document.getElementById("sliderStage4").value);
   const rr = Number(document.getElementById("sliderRerouteDist").value);
+  const vRate = Number(document.getElementById("sliderVoiceRate").value);
+  const vPitch = Number(document.getElementById("sliderVoicePitch").value);
 
   if (s2 >= s1) s2 = s1 - 100;
   if (s3 >= s2) s3 = s2 - 50;
@@ -156,7 +188,9 @@ function onSettingSliderChange() {
     stage2Dist: s2,
     stage3Dist: s3,
     stage4Dist: s4,
-    rerouteDist: rr
+    rerouteDist: rr,
+    voiceRate: vRate,
+    voicePitch: vPitch
   };
 
   syncSettingsSlidersUI();
@@ -167,7 +201,7 @@ function resetNavSettingsDefault() {
   navConfig = { ...DEFAULT_NAV_CONFIG };
   syncSettingsSlidersUI();
   saveNavConfig();
-  speakJapanese("案内距離と高速自動2倍設定を初期値に戻しました。");
+  speakJapanese("案内距離とインカム音声設定を初期値に戻しました。");
 }
 
 function testVoiceAnnouncement() {
@@ -178,7 +212,64 @@ function testVoiceAnnouncement() {
 }
 
 // ==========================================
-// 2. 状態管理・永続データ（マイガレージ＆称号）
+// 2. Web Audio API インカム事前チャイム音（「ポーン♪」）
+// ==========================================
+let audioCtx = null;
+
+function playIntercomChime() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    if (!audioCtx) audioCtx = new AudioContextClass();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+
+    const now = audioCtx.currentTime;
+    // 2音のクリアなインカムチャイム (E5 -> C5)
+    const notes = [
+      { freq: 659.25, start: now, dur: 0.14 },
+      { freq: 523.25, start: now + 0.13, dur: 0.24 }
+    ];
+
+    notes.forEach(n => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(n.freq, n.start);
+
+      gain.gain.setValueAtTime(0.001, n.start);
+      gain.gain.exponentialRampToValueAtTime(0.18, n.start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, n.start + n.dur);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(n.start);
+      osc.stop(n.start + n.dur + 0.02);
+    });
+  } catch (e) {}
+}
+
+function speakJapanese(text) {
+  if (!("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+
+  const startSpeech = () => {
+    const uttr = new SpeechSynthesisUtterance(text);
+    uttr.lang = "ja-JP";
+    uttr.rate = navConfig.voiceRate || 1.10;
+    uttr.pitch = navConfig.voicePitch || 1.05;
+    window.speechSynthesis.speak(uttr);
+  };
+
+  if (navConfig.voiceChime) {
+    playIntercomChime();
+    setTimeout(startSpeech, 260);
+  } else {
+    startSpeech();
+  }
+}
+
+// ==========================================
+// 3. 状態管理・永続データ（マイガレージ＆称号）
 // ==========================================
 let currentLat = 35.4535;
 let currentLng = 139.6345;
@@ -197,6 +288,10 @@ let activeDestName = "";
 let activeDestCoord = null;
 let activeWaypoint = null;
 let wakeLock = null;
+
+// GPS精度フィルタリング用カウンタ（連続逸脱検知）
+let offRouteStreakCount = 0;
+const MAX_ACCEPTABLE_GPS_ACCURACY_M = 45; // 誤差45m以上はトンネル/高架下ノイズとみなして無視
 
 const initialHour = new Date().getHours();
 let isDarkMap = initialHour >= 18 || initialHour < 6;
@@ -250,7 +345,7 @@ function unlockBadge(badgeId) {
 }
 
 // ==========================================
-// 3. 右上メニュー開閉＆SOS長押し安全ロック
+// 4. 右上メニュー開閉＆SOS長押し安全ロック
 // ==========================================
 let isMenuOpen = false;
 let sosHoldTimer = null;
@@ -288,25 +383,25 @@ function cancelSosHold() {
 }
 
 // ==========================================
-// 4. ゲーム風チュートリアルモード
+// 5. ゲーム風チュートリアルモード
 // ==========================================
 let tutStep = 0;
 const tutorialMissions = [
   {
     badge: "MISSION 1 / 4",
     avatar: "🎧",
-    sub: "STEP 1: 4-STAGE & HIGHWAY 2X",
-    title: "一般道4段階 ＋ 高速70km/h以上は自動2倍案内",
-    desc: "一般道では1000m・500m・200m・100m手前で車線誘導し、時速70km以上の高速道路に入ると自動で2000m・1000m・400m・200mに広がります！",
-    apiTag: "使用API: Web Speech API（登録不要・無料）",
-    btnText: "🔊 音声テストを実行して次へ ▶"
+    sub: "STEP 1: INTERCOM CHIME & 2X HIGHWAY",
+    title: "事前チャイム音 ＋ 高速70km/h以上自動2倍",
+    desc: "案内前に「ポーン♪」とチャイムが鳴り、一般道では1000m→500m→200m→100m、時速70km以上の高速道路では自動で2倍距離で車線誘導します！",
+    apiTag: "使用API: Web Speech API ＋ Web Audio API",
+    btnText: "🔔 チャイム＆音声テストを実行して次へ ▶"
   },
   {
     badge: "MISSION 2 / 4",
     avatar: "🛰️",
-    sub: "STEP 2: GPS & 35m STRICT REROUTE",
-    title: "GPS現在地 ＆ 35mシビア自動リルート",
-    desc: "ルートから35m（高速時は70m）外れると即座に再検索します。位置情報の許可を押してGPSとリアル気象を接続しましょう！",
+    sub: "STEP 2: GPS ACCURACY FILTER & 35m REROUTE",
+    title: "トンネル誤作動防止 ＋ 35m自動リルート",
+    desc: "GPS誤差45m以上のトンネルや高架下では誤リルートを自動ブロック！通常時は35m（高速70m）外れると即座に再計算します。",
     apiTag: "使用API: Geolocation API ＋ Open-Meteo気象API",
     btnText: "📡 GPSと気象データを接続する ▶"
   },
@@ -322,10 +417,10 @@ const tutorialMissions = [
   {
     badge: "MISSION 4 / 4",
     avatar: "🏁",
-    sub: "FINAL MISSION: ROUTE SIMULATION",
-    title: "先読み＆急カーブ警戒ルートを体験！",
-    desc: "最後に「江ノ島」までの大通り優先ルートと先読み車線ガイドを検索してチュートリアル完了です！",
-    apiTag: "使用API: Nominatim ＆ OSRM ルートAPI",
+    sub: "FINAL MISSION: PWA & ROUTE READY",
+    title: "ホーム画面追加（アプリ化）＆出発！",
+    desc: "ブラウザメニューから「ホーム画面に追加」すると専用ナビアプリとして使えます。最後にサンプルルートを検索して完了です！",
+    apiTag: "PWA対応: オフラインキャッシュ有効",
     btnText: "🚀 サンプルルートを検索して出発する！"
   }
 ];
@@ -358,12 +453,12 @@ function renderTutorialStep() {
 
 function runTutorialStep() {
   if (tutStep === 0) {
-    speakJapanese("インカム接続完了です。時速70キロ以上の高速巡航時は案内距離が自動で2倍になります。");
+    speakJapanese("インカム接続完了です。案内前のチャイム音と高速2倍モードが有効です。");
     tutStep = 1;
     renderTutorialStep();
   } else if (tutStep === 1) {
     if (!isGpsActive) toggleGPS();
-    speakJapanese("GPSと気象データに接続しました。次はバンク角センサーを有効にします。");
+    speakJapanese("GPS精度フィルタと気象データに接続しました。次はバンク角センサーを有効にします。");
     tutStep = 2;
     renderTutorialStep();
   } else if (tutStep === 2) {
@@ -379,7 +474,7 @@ function runTutorialStep() {
 }
 
 // ==========================================
-// 5. ベクター地図（昼＆夜間省電力ダーク切替対応）
+// 6. ベクター地図（昼＆夜間省電力ダーク切替対応）
 // ==========================================
 const map = new maplibregl.Map({
   container: "vectorMap",
@@ -519,7 +614,7 @@ function recenterMap() {
 }
 
 // ==========================================
-// 6. 大通り優先（狭路回避）ルートオプション
+// 7. 大通り優先（狭路回避）ルートオプション
 // ==========================================
 function toggleMajorRoadMode() {
   isMajorRoadPriority = !isMajorRoadPriority;
@@ -578,7 +673,7 @@ function pickBestRouteForRider(routes) {
 }
 
 // ==========================================
-// 7. 音声コマンド（ハンズフリー目的地＆経由地追加）
+// 8. 音声コマンド（ハンズフリー目的地＆経由地追加）
 // ==========================================
 function startVoiceCommand() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -644,7 +739,7 @@ function processVoiceTranscript(text) {
 }
 
 // ==========================================
-// 8. 気象API＆走行風体感温度計算
+// 9. 気象API＆走行風体感温度計算
 // ==========================================
 async function fetchRealWeather(lat, lng, placeName = null) {
   const now = Date.now();
@@ -709,7 +804,7 @@ function updateWeatherUI() {
 }
 
 // ==========================================
-// 9. ルート検索・急カーブ検出・ETA表示・暖簾一覧
+// 10. ルート検索・急カーブ検出・ETA表示・暖簾一覧
 // ==========================================
 function setNorenOpen(openState) {
   isNorenOpen = openState;
@@ -802,6 +897,7 @@ function resetToStandbyMode() {
   generatedSteps = [];
   currentStepIdx = 0;
   routeCoordinates = [];
+  offRouteStreakCount = 0;
   currentRouteGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: [] } };
 
   if (map.getSource("route-source")) {
@@ -842,6 +938,7 @@ function resetToStandbyMode() {
 
 async function searchAndRoute(isReroute = false) {
   setNorenOpen(false);
+  offRouteStreakCount = 0;
   const query = document.getElementById("destInput").value.trim();
   if (!query && !activeDestCoord) {
     document.getElementById("destInput").focus();
@@ -1133,9 +1230,9 @@ function applyGeneratedStep(idx, speak = true) {
 }
 
 // ==========================================
-// 10. 4段階シビア車線誘導（高速70km/h以上は自動2倍）＆ 自動リルート
+// 11. 4段階シビア車線誘導（高速70km/h以上は自動2倍）＆ GPS精度フィルタ付リルート
 // ==========================================
-function evaluateLiveNavigation(lat, lng, speedKmh) {
+function evaluateLiveNavigation(lat, lng, speedKmh, gpsAccuracyM = 10) {
   if (!isRouteActive || generatedSteps.length === 0) return;
 
   // 1) 目的地までの残距離とETAのリアルタイム更新
@@ -1161,7 +1258,7 @@ function evaluateLiveNavigation(lat, lng, speedKmh) {
 
     const action = curStep.turnAction || curStep.headline;
     const laneMsg = curStep.laneAction || curStep.headline;
-    const passThreshold = eff.mult === 2 ? 45 : 28; // 高速時は通過判定も少し広げる
+    const passThreshold = eff.mult === 2 ? 45 : 28;
 
     if (distM <= eff.s1 && distM > eff.s2 && !curStep._announcedStage1) {
       curStep._announcedStage1 = true;
@@ -1189,25 +1286,39 @@ function evaluateLiveNavigation(lat, lng, speedKmh) {
     }
   }
 
-  // 3) シビアなルート逸脱チェック（一般道35m / 高速70m）
+  // 3) GPS精度フィルタリング付き・ルート逸脱チェック
+  // トンネルや高架下でGPS誤差が45m以上の場合は誤判定を防ぐためスキップ
+  if (gpsAccuracyM > MAX_ACCEPTABLE_GPS_ACCURACY_M) {
+    offRouteStreakCount = 0;
+    return;
+  }
+
   if (routeCoordinates.length > 2 && Date.now() - lastRerouteTime > 10000) {
     let minDistM = Infinity;
     for (let i = 0; i < routeCoordinates.length; i += 2) {
       const d = haversineKm(lat, lng, routeCoordinates[i][1], routeCoordinates[i][0]) * 1000;
       if (d < minDistM) minDistM = d;
     }
+
+    // 瞬間的な電波飛びを防ぐため「2回連続」で逸脱距離を超えた場合のみリルート実行
     if (minDistM > eff.reroute) {
-      lastRerouteTime = Date.now();
-      const msg = `ルートから${Math.round(minDistM)}メートル外れました。現在地から再計算します。`;
-      document.getElementById("voiceSubtitle").textContent = `🔄 ${msg}`;
-      speakJapanese(msg);
-      searchAndRoute(true);
+      offRouteStreakCount++;
+      if (offRouteStreakCount >= 2) {
+        offRouteStreakCount = 0;
+        lastRerouteTime = Date.now();
+        const msg = `ルートから${Math.round(minDistM)}メートル外れました。現在地から再計算します。`;
+        document.getElementById("voiceSubtitle").textContent = `🔄 ${msg}`;
+        speakJapanese(msg);
+        searchAndRoute(true);
+      }
+    } else {
+      offRouteStreakCount = 0;
     }
   }
 }
 
 // ==========================================
-// 11. 周辺スポット検索＆経由地組み込み (Overpass API)
+// 12. 周辺スポット検索＆経由地組み込み (Overpass API)
 // ==========================================
 async function searchNearbyPOI(type, setAsWaypoint = false) {
   setNorenOpen(false);
@@ -1270,7 +1381,7 @@ async function searchNearbyPOI(type, setAsWaypoint = false) {
 }
 
 // ==========================================
-// 12. マイガレージ（案内設定・お気に入り・履歴・称号）
+// 13. マイガレージ（案内設定・お気に入り・履歴・称号）
 // ==========================================
 function openGarageModal(tab = "settings") {
   switchGarageTab(tab);
@@ -1400,7 +1511,7 @@ function resetTripLog() {
 }
 
 // ==========================================
-// 13. GPS・ジャイロ・画面スリープ防止
+// 14. GPS・ジャイロ・画面スリープ防止
 // ==========================================
 async function requestWakeLock() {
   try {
@@ -1449,7 +1560,7 @@ function toggleGPS() {
     document.getElementById("gpsToggleBtn").classList.remove("gps-on");
     document.getElementById("gpsBtnLabel").textContent = "📡 GPS開始";
     document.getElementById("gpsBtnSub").textContent = "自動案内＆リルート";
-    document.getElementById("gpsDot").classList.remove("active");
+    document.getElementById("gpsDot").className = "gps-status-dot";
     document.getElementById("gpsStatusText").textContent = "GPS停止中";
     return;
   }
@@ -1462,9 +1573,12 @@ function toggleGPS() {
     (pos) => {
       isGpsActive = true;
       unlockBadge("first_gps");
-      const { latitude, longitude, speed, heading, altitude } = pos.coords;
+      const { latitude, longitude, speed, heading, altitude, accuracy } = pos.coords;
+      const accM = accuracy ? Math.round(accuracy) : 10;
+      const isGoodSignal = accM <= MAX_ACCEPTABLE_GPS_ACCURACY_M;
 
-      if (prevLat !== null && prevLng !== null) {
+      // 精度が良い時だけ走行距離・軌跡を加算（トンネル内の座標飛びによる距離水増し防止）
+      if (isGoodSignal && prevLat !== null && prevLng !== null) {
         const dKm = haversineKm(prevLat, prevLng, latitude, longitude);
         if (dKm > 0.003 && dKm < 0.5) {
           totalDistanceKm += dKm;
@@ -1481,12 +1595,14 @@ function toggleGPS() {
 
       if (heading !== null && !isNaN(heading) && speed > 1.2) {
         currentHeading = Math.round(heading);
-      } else if (prevLat !== null && (Math.abs(latitude - prevLat) > 0.00003 || Math.abs(longitude - prevLng) > 0.00003)) {
+      } else if (isGoodSignal && prevLat !== null && (Math.abs(latitude - prevLat) > 0.00003 || Math.abs(longitude - prevLng) > 0.00003)) {
         currentHeading = Math.round(calcBearing(prevLat, prevLng, latitude, longitude));
       }
 
-      prevLat = latitude;
-      prevLng = longitude;
+      if (isGoodSignal) {
+        prevLat = latitude;
+        prevLng = longitude;
+      }
       currentLat = latitude;
       currentLng = longitude;
 
@@ -1508,7 +1624,6 @@ function toggleGPS() {
       document.getElementById("speedVal").textContent = kmh;
       document.getElementById("speedHud").classList.add("live");
 
-      // 時速70km以上で高速2倍モードへ自動切替
       updateHighwaySpeedState(kmh);
 
       const elapsedMin = Math.floor((Date.now() - rideStartTime) / 60000);
@@ -1527,11 +1642,15 @@ function toggleGPS() {
       const eff = getEffectiveNavDistances();
       document.getElementById("gpsToggleBtn").classList.add("gps-on");
       document.getElementById("gpsBtnLabel").textContent = isHighwaySpeedMode ? "🛣️ 高速2倍稼働" : "🛰️ GPS稼働中";
-      document.getElementById("gpsBtnSub").textContent = `逸脱${eff.reroute}m監視中`;
-      document.getElementById("gpsDot").classList.add("active");
-      document.getElementById("gpsStatusText").textContent = "GPS測位OK";
+      document.getElementById("gpsBtnSub").textContent = isGoodSignal ? `逸脱${eff.reroute}m監視中` : `精度低下(±${accM}m)`;
 
-      evaluateLiveNavigation(currentLat, currentLng, kmh);
+      const dotEl = document.getElementById("gpsDot");
+      dotEl.className = isGoodSignal ? "gps-status-dot active" : "gps-status-dot warn";
+      document.getElementById("gpsStatusText").textContent = isGoodSignal
+        ? `GPSOK (±${accM}m)`
+        : `測位不安定 (±${accM}m)`;
+
+      evaluateLiveNavigation(currentLat, currentLng, kmh, accM);
 
       fetchRealWeather(currentLat, currentLng);
       updateWeatherUI();
@@ -1544,7 +1663,7 @@ function toggleGPS() {
 }
 
 // ==========================================
-// 14. ユーティリティ・デモ・モーダル制御
+// 15. ユーティリティ・デモ・モーダル制御
 // ==========================================
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
@@ -1657,17 +1776,8 @@ function closeModals() {
   document.getElementById("sosModal").classList.remove("open");
 }
 
-function speakJapanese(text) {
-  if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
-  const uttr = new SpeechSynthesisUtterance(text);
-  uttr.lang = "ja-JP";
-  uttr.rate = 1.08;
-  window.speechSynthesis.speak(uttr);
-}
-
 // ==========================================
-// 15. 初期起動処理
+// 16. 初期起動処理
 // ==========================================
 resetToStandbyMode();
 syncThemeButtonsUI();

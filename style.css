@@ -210,10 +210,11 @@ html, body {
 .speed-val { font-size: 24px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
 .speed-unit { font-size: 9px; font-weight: 700; color: var(--text-muted); margin-top: 2px; }
 
-/* 右下: 走行ログ＆GPSステータスHUD */
+/* 右下: 走行ログ＆GPS精度ステータスHUD */
 .gps-coord-hud { position: absolute; bottom: 8px; right: 8px; background: rgba(11, 17, 30, 0.92); border: 1px solid #334155; border-radius: 11px; padding: 6px 9px; font-size: 10px; line-height: 1.4; color: #cbd5e1; text-align: right; z-index: 500; font-variant-numeric: tabular-nums; cursor: pointer; }
 .gps-status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #64748b; margin-right: 4px; }
 .gps-status-dot.active { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+.gps-status-dot.warn { background: var(--accent-amber); box-shadow: 0 0 6px var(--accent-amber); }
 
 /* クイックツールバー */
 .quick-strip { display: flex; gap: 5px; padding: 6px 10px 2px; overflow-x: auto; flex-shrink: 0; scrollbar-width: none; }
@@ -237,26 +238,27 @@ html, body {
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; padding: 14px; z-index: 1000; }
 .modal-backdrop.open { display: flex; }
 .modal-card { width: 100%; max-width: 420px; background: #111827; border: 1px solid var(--border-color); border-radius: 18px; padding: 16px; box-shadow: 0 20px 40px rgba(0,0,0,0.75); }
-.modal-tall { max-height: 84dvh; display: flex; flex-direction: column; }
+.modal-tall { max-height: 85dvh; display: flex; flex-direction: column; }
 .modal-sos { border-color: var(--accent-red); }
 .sos-title { color: #ff8a65; }
 .sos-desc { font-size: 13px; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px; }
 .modal-title { font-size: 16px; font-weight: 900; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
 
-.modal-tabs.four-tabs { display: grid; grid-template-columns: 1.1fr 1fr 1fr 0.8fr; gap: 5px; margin-bottom: 12px; }
+.modal-tabs.four-tabs { display: grid; grid-template-columns: 1.15fr 1fr 1fr 0.75fr; gap: 5px; margin-bottom: 12px; }
 .tab-btn { padding: 8px 3px; border-radius: 9px; border: 1px solid #263554; background: #0d1322; color: #94a3b8; font-size: 11px; font-weight: 800; cursor: pointer; }
 .tab-btn.active { background: rgba(0, 176, 255, 0.22); border-color: var(--accent-cyan); color: #ffffff; }
 
 .tab-pane { display: none; flex-direction: column; overflow: hidden; }
 .tab-pane.active { display: flex; }
-.scroll-box { max-height: 54dvh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+.scroll-box { max-height: 56dvh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
 
-/* 案内距離設定スライダーUI */
+/* 案内距離＆音声設定スライダーUI */
 .setting-group { background: #182236; border: 1px solid #263554; border-radius: 12px; padding: 10px 12px; }
 .setting-group.highway-box { border-color: rgba(0, 176, 255, 0.6); background: rgba(0, 176, 255, 0.08); }
+.setting-group.voice-box { border-color: rgba(179, 136, 255, 0.55); background: rgba(179, 136, 255, 0.07); }
 .setting-group.warn-border { border-color: rgba(255, 171, 0, 0.55); }
 
-.setting-head { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 800; color: #e2e8f0; margin-bottom: 5px; gap: 6px; }
+.setting-head { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 800; color: #e2e8f0; margin-bottom: 4px; gap: 6px; }
 .setting-val { font-size: 12px; font-weight: 900; color: var(--accent-green); flex-shrink: 0; }
 .setting-val.warn-txt { color: var(--accent-amber); }
 

@@ -5,8 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="APEX NAVI" />
   <meta name="theme-color" content="#080c14" />
   <title>APEX NAVI - Complete Rider OS</title>
+
+  <!-- PWA Manifest & アイコン -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%23080c14'/%3E%3Ccircle cx='96' cy='96' r='68' fill='%2300b0ff' fill-opacity='0.2' stroke='%2300e676' stroke-width='8'/%3E%3Ctext x='96' y='118' font-size='78' text-anchor='middle'%3E%F0%9F%8F%8D%EF%B8%8F%3C/text%3E%3C/svg%3E" />
 
   <!-- MapLibre GL JS -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="" />
@@ -82,7 +87,7 @@
       <div class="map-controls">
         <button class="map-mini-btn menu-toggle-btn" id="menuToggleBtn" onclick="toggleMapMenu()">⚙️ メニュー</button>
         <div class="map-menu-drawer" id="mapMenuDrawer">
-          <button class="map-mini-btn setting-btn" onclick="openGarageModal('settings'); toggleMapMenu(false)">🎛️ 案内距離・高速2倍設定</button>
+          <button class="map-mini-btn setting-btn" onclick="openGarageModal('settings'); toggleMapMenu(false)">🎛️ 案内距離・音声設定</button>
           <button class="map-mini-btn theme-btn" id="mapThemeBtn" onclick="toggleMapTheme()">☀️ 地図: 昼モード</button>
           <button class="map-mini-btn style-btn" id="tiltModeBtn" onclick="togglePitchView()">📐 視点: ナビ3D</button>
           <button class="map-mini-btn active" id="headingModeBtn" onclick="toggleHeadingUp()">🧭 ヘディングUP</button>
@@ -107,7 +112,7 @@
         <div class="speed-unit" id="speedUnit">km/h (一般道)</div>
       </div>
 
-      <!-- 右下: 走行ログ＆GPSステータスHUD -->
+      <!-- 右下: 走行ログ＆GPS精度ステータスHUD -->
       <div class="gps-coord-hud" onclick="openGarageModal('log')">
         <div><span class="gps-status-dot" id="gpsDot"></span><span id="gpsStatusText">GPS未接続</span></div>
         <div id="tripSummaryText">走行: 0.0km / 00:00</div>
@@ -117,7 +122,7 @@
 
     <!-- クイックツールバー -->
     <nav class="quick-strip">
-      <button class="chip-btn setting-chip" onclick="openGarageModal('settings')">🎛️ 案内距離設定</button>
+      <button class="chip-btn setting-chip" onclick="openGarageModal('settings')">🎛️ 距離・音声設定</button>
       <button class="chip-btn garage-chip" onclick="openGarageModal('fav')">🏠 ガレージ/称号</button>
       <button class="chip-btn" id="quickThemeBtn" onclick="toggleMapTheme()">🌙 夜間ダーク</button>
       <button class="chip-btn" onclick="searchNearbyPOI('fuel', true)">⛽ 最寄GS経由</button>
@@ -173,7 +178,7 @@
     </div>
   </div>
 
-  <!-- マイガレージ・ナビ距離設定・走行履歴・ライダー称号モーダル -->
+  <!-- マイガレージ・ナビ距離＆インカム音声設定・走行履歴・ライダー称号モーダル -->
   <div class="modal-backdrop" id="garageModal" onclick="if(event.target===this) closeModals()">
     <div class="modal-card modal-tall">
       <div class="modal-title">
@@ -182,13 +187,13 @@
       </div>
 
       <div class="modal-tabs four-tabs">
-        <button class="tab-btn active" id="tabBtnSettings" onclick="switchGarageTab('settings')">🎛️ 案内設定</button>
+        <button class="tab-btn active" id="tabBtnSettings" onclick="switchGarageTab('settings')">🎛️ 距離・音声</button>
         <button class="tab-btn" id="tabBtnFav" onclick="switchGarageTab('fav')">📍 お気に入り</button>
         <button class="tab-btn" id="tabBtnLog" onclick="switchGarageTab('log')">📊 走行履歴</button>
         <button class="tab-btn" id="tabBtnBadge" onclick="switchGarageTab('badge')">🏆 称号</button>
       </div>
 
-      <!-- タブ0: 案内距離・高速2倍・逸脱感度カスタマイズ設定 -->
+      <!-- タブ0: 案内距離・高速2倍・GPS精度フィルタ・インカム音声設定 -->
       <div class="tab-pane active" id="paneSettings">
         <div class="scroll-box settings-scroll">
           <!-- 高速道路（70km/h以上）自動2倍拡張トグル -->
@@ -198,8 +203,27 @@
               <button class="toggle-pill-btn active" id="highwayAutoBtn" onclick="toggleHighwayAutoScale()">ON (自動2倍)</button>
             </div>
             <div class="setting-hint" id="highwayPreviewText">
-              現在: 一般道基準 (1000m / 500m / 200m / 100m) → 70km/h以上で (2000m / 1000m / 400m / 200m)
+              一般道 (1000/500/200/100m) → 70km/h以上で (2000/1000/400/200m)
             </div>
+          </div>
+
+          <!-- インカム音声カスタマイズ（チャイム音・速度・声の高さ） -->
+          <div class="setting-group voice-box">
+            <div class="setting-head">
+              <span>🔔 案内前のインカム通知音（ポーン♪）</span>
+              <button class="toggle-pill-btn active" id="voiceChimeBtn" onclick="toggleVoiceChime()">ON (チャイム有)</button>
+            </div>
+            <div class="setting-head" style="margin-top:6px;">
+              <span>🗣️ 読み上げスピード（話速）</span>
+              <span class="setting-val" id="valVoiceRate">1.10倍</span>
+            </div>
+            <input type="range" class="nav-slider" id="sliderVoiceRate" min="0.8" max="1.5" step="0.05" value="1.10" oninput="onSettingSliderChange()" />
+
+            <div class="setting-head" style="margin-top:4px;">
+              <span>🎵 声の高さ（ピッチ）</span>
+              <span class="setting-val" id="valVoicePitch">1.05</span>
+            </div>
+            <input type="range" class="nav-slider" id="sliderVoicePitch" min="0.7" max="1.4" step="0.05" value="1.05" oninput="onSettingSliderChange()" />
           </div>
 
           <div class="setting-group">
@@ -236,14 +260,15 @@
 
           <div class="setting-group warn-border">
             <div class="setting-head">
-              <span>🔄 ルート逸脱リルート判定距離</span>
+              <span>🔄 ルート逸脱リルート距離（精度フィルタ付）</span>
               <span class="setting-val warn-txt" id="valRerouteDist">35m (高速70m)</span>
             </div>
             <input type="range" class="nav-slider" id="sliderRerouteDist" min="20" max="80" step="5" value="35" oninput="onSettingSliderChange()" />
+            <div class="setting-hint">GPS誤差が45m以上のトンネル・高架下では自動で誤リルートを保留します</div>
           </div>
 
           <div style="display:flex;gap:6px;margin-top:4px;">
-            <button class="modal-action-btn btn-cyan" style="margin-top:0;" onclick="testVoiceAnnouncement()">🔊 音声テスト</button>
+            <button class="modal-action-btn btn-cyan" style="margin-top:0;" onclick="testVoiceAnnouncement()">🔔 音声テスト</button>
             <button class="modal-action-btn btn-slate" style="margin-top:0;" onclick="resetNavSettingsDefault()">初期値に戻す</button>
           </div>
         </div>
