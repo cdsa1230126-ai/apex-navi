@@ -87,6 +87,7 @@
       <div class="map-controls">
         <button class="map-mini-btn menu-toggle-btn" id="menuToggleBtn" onclick="toggleMapMenu()">⚙️ メニュー</button>
         <div class="map-menu-drawer" id="mapMenuDrawer">
+          <button class="map-mini-btn sim-btn" onclick="toggleSimulationMode(); toggleMapMenu(false)">🧪 実走シミュレーション</button>
           <button class="map-mini-btn setting-btn" onclick="openGarageModal('settings'); toggleMapMenu(false)">🎛️ 案内距離・音声設定</button>
           <button class="map-mini-btn theme-btn" id="mapThemeBtn" onclick="toggleMapTheme()">☀️ 地図: 昼モード</button>
           <button class="map-mini-btn style-btn" id="tiltModeBtn" onclick="togglePitchView()">📐 視点: ナビ3D</button>
@@ -105,6 +106,23 @@
       <!-- ベクター地図コンテナ -->
       <div id="vectorMap"></div>
 
+      <!-- 実走シミュレーション（デバッグ）操作HUDパネル -->
+      <div class="sim-control-panel" id="simControlPanel">
+        <div class="sim-header">
+          <span>🧪 実走シミュレーター稼働中</span>
+          <button class="sim-close-btn" onclick="stopSimulationMode()">終了 ✕</button>
+        </div>
+        <div class="sim-btn-row">
+          <button class="sim-btn-item active" id="simSpd40" onclick="setSimSpeed(40)">40km/h (一般)</button>
+          <button class="sim-btn-item" id="simSpd80" onclick="setSimSpeed(80)">80km/h (高速2倍)</button>
+          <button class="sim-btn-item" id="simSpd160" onclick="setSimSpeed(160)">160km/h (早送り)</button>
+        </div>
+        <div class="sim-btn-row" style="margin-top:5px;">
+          <button class="sim-btn-item warn" onclick="triggerSimOffRoute()">↪️ ルート逸脱テスト</button>
+          <button class="sim-btn-item purple" id="simTunnelBtn" onclick="toggleSimTunnelNoise()">🚇 トンネル誤差: OFF</button>
+        </div>
+      </div>
+
       <!-- 左下: 現在速度HUD（高速2倍モード表示付き） -->
       <div class="gps-speed-hud" id="speedHud" onclick="openGarageModal('settings')">
         <div class="highway-badge" id="highwayBadge" style="display:none;">🛣️ 高速2倍案内</div>
@@ -122,6 +140,7 @@
 
     <!-- クイックツールバー -->
     <nav class="quick-strip">
+      <button class="chip-btn sim-chip" id="quickSimBtn" onclick="toggleSimulationMode()">🧪 実走テスト</button>
       <button class="chip-btn setting-chip" onclick="openGarageModal('settings')">🎛️ 距離・音声設定</button>
       <button class="chip-btn garage-chip" onclick="openGarageModal('fav')">🏠 ガレージ/称号</button>
       <button class="chip-btn" id="quickThemeBtn" onclick="toggleMapTheme()">🌙 夜間ダーク</button>
@@ -196,7 +215,6 @@
       <!-- タブ0: 案内距離・高速2倍・GPS精度フィルタ・インカム音声設定 -->
       <div class="tab-pane active" id="paneSettings">
         <div class="scroll-box settings-scroll">
-          <!-- 高速道路（70km/h以上）自動2倍拡張トグル -->
           <div class="setting-group highway-box">
             <div class="setting-head" style="margin-bottom:4px;">
               <span>🛣️ 高速道路モード（70km/h以上で2倍）</span>
@@ -207,7 +225,6 @@
             </div>
           </div>
 
-          <!-- インカム音声カスタマイズ（チャイム音・速度・声の高さ） -->
           <div class="setting-group voice-box">
             <div class="setting-head">
               <span>🔔 案内前のインカム通知音（ポーン♪）</span>
