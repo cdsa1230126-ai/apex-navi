@@ -277,6 +277,7 @@ let currentHeading = 0;
 let isHeadingUp = true;
 let isPitch3D = true;
 let autoFollow = true;
+let autoRecenterTimer = null;
 let watchId = null;
 let isGpsActive = false;
 let isRouteActive = false;
@@ -343,7 +344,47 @@ function unlockBadge(badgeId) {
 }
 
 // ==========================================
-// 4. 共通位置更新パイプライン（実GPS＆シミュレーター共用）
+// 4. 自車追従モード＆自動復帰コントロール
+// ==========================================
+function setAutoFollowState(followState, scheduleAutoReturn = false) {
+  autoFollow = followState;
+  const btn = document.getElementById("recenterBtn");
+  if (btn) {
+    btn.classList.toggle("following", autoFollow);
+    btn.classList.toggle("detached", !autoFollow);
+    btn.textContent = autoFollow ? "🎯 追従中" : "🎯 現在地へ戻る";
+  }
+
+  if (autoRecenterTimer) {
+    clearTimeout(autoRecenterTimer);
+    autoRecenterTimer = null;
+  }
+
+  // 走行中（GPSまたはシミュレーション中）に指で地図を動かした場合、10秒後に自動で自車追従へ戻る
+  if (!autoFollow && scheduleAutoReturn && (isGpsActive || isSimActive)) {
+    autoRecenterTimer = setTimeout(() => {
+      recenterMap(true);
+    }, 10000);
+  }
+}
+
+function recenterMap(isSilent = false) {
+  setAutoFollowState(true, false);
+  toggleMapMenu(false);
+  map.easeTo({
+    center: [currentLng, currentLat],
+    zoom: 16,
+    bearing: isHeadingUp ? currentHeading : 0,
+    pitch: isPitch3D ? 45 : 0,
+    duration: 500
+  });
+  if (!isSilent) {
+    document.getElementById("voiceSubtitle").textContent = "🎯 現在地（バイク位置）の自動追従を再開しました。";
+  }
+}
+
+// ==========================================
+// 5. 共通位置更新パイプライン（実GPS＆シミュレーター共用）
 // ==========================================
 function processPositionUpdate({ latitude, longitude, speedKmh, headingDeg, altitudeM, accuracyM }) {
   const accM = Math.round(accuracyM);
@@ -434,7 +475,7 @@ function processPositionUpdate({ latitude, longitude, speedKmh, headingDeg, alti
 }
 
 // ==========================================
-// 5. 実走シミュレーション（デバッグ）エンジン
+// 6. 実走シミュレーション（デバッグ）エンジン
 // ==========================================
 let isSimActive = false;
 let simTimer = null;
@@ -452,10 +493,8 @@ function toggleSimulationMode() {
 }
 
 async function startSimulationMode() {
-  // 実GPSが動いていたら停止
   if (isGpsActive) toggleGPS();
 
-  // ルートが未設定の場合は自動でサンプルルートを検索
   if (!isRouteActive || routeCoordinates.length < 2) {
     const input = document.getElementById("destInput");
     if (!input.value.trim()) input.value = "江ノ島";
@@ -467,8 +506,8 @@ async function startSimulationMode() {
   isSimActive = true;
   simRouteIndex = 0;
   simSegmentProgress = 0;
-  autoFollow = true;
-  document.getElementById("recenterBtn").classList.remove("active");
+  recenterMap(true);
+
   document.getElementById("simControlPanel").classList.add("open");
   document.getElementById("quickSimBtn").classList.add("sim-running");
   document.getElementById("quickSimBtn").textContent = "🧪 テスト停止";
@@ -525,7 +564,6 @@ function toggleSimTunnelNoise() {
 
 function triggerSimOffRoute() {
   if (!isSimActive) return;
-  // ルートから東へ約60mずらした座標を2回連続で送り、35m逸脱検知＆自動リルートを発動させる
   const offLng = currentLng + 0.00068;
   const offLat = currentLat + 0.00025;
   const acc = simTunnelNoiseOn ? 80 : 8;
@@ -549,7 +587,6 @@ function triggerSimOffRoute() {
       altitudeM: 25,
       accuracyM: acc
     });
-    // リルート後に新しいルート先頭から走れるようインデックスリセット
     simRouteIndex = 0;
     simSegmentProgress = 0;
   }, 300);
@@ -558,7 +595,6 @@ function triggerSimOffRoute() {
 function tickSimulation() {
   if (!isSimActive || !isRouteActive || routeCoordinates.length < 2) return;
 
-  // 0.5秒間に進む距離(m)
   let stepMeters = (simSpeedKmh * 1000 / 3600) * 0.5;
 
   while (stepMeters > 0 && simRouteIndex < routeCoordinates.length - 1) {
@@ -598,7 +634,6 @@ function tickSimulation() {
   let simLat = a[1] + (b[1] - a[1]) * simSegmentProgress;
   const heading = calcBearing(a[1], a[0], b[1], b[0]);
 
-  // トンネル誤差ON時はわざと座標を55m横に飛ばしつつ精度を±80mにする
   if (simTunnelNoiseOn) {
     simLng += 0.0006;
   }
@@ -614,7 +649,7 @@ function tickSimulation() {
 }
 
 // ==========================================
-// 6. 右上メニュー開閉＆SOS長押し安全ロック
+// 7. 右上メニュー開閉＆SOS長押し安全ロック
 // ==========================================
 let isMenuOpen = false;
 let sosHoldTimer = null;
@@ -652,7 +687,7 @@ function cancelSosHold() {
 }
 
 // ==========================================
-// 7. ゲーム風チュートリアルモード
+// 8. ゲーム風チュートリアルモード
 // ==========================================
 let tutStep = 0;
 const tutorialMissions = [
@@ -743,7 +778,7 @@ function runTutorialStep() {
 }
 
 // ==========================================
-// 8. ベクター地図（昼＆夜間省電力ダーク切替対応）
+// 9. ベクター地図（昼＆夜間ダーク切替 ＋ ルート線永続復元）
 // ==========================================
 const map = new maplibregl.Map({
   container: "vectorMap",
@@ -770,64 +805,98 @@ let generatedSteps = [];
 let currentStepIdx = 0;
 let trackCoords = [[currentLng, currentLat]];
 
-function setupRouteAndTrackLayers() {
-  if (!map.getSource("route-source")) {
-    map.addSource("route-source", {
-      type: "geojson",
-      data: currentRouteGeoJson || { type: "Feature", geometry: { type: "LineString", coordinates: [] } }
-    });
-  }
+function ensureRouteAndTrackLayers() {
+  if (!map || !map.isStyleLoaded()) return;
 
-  if (!map.getLayer("route-casing")) {
-    map.addLayer({
-      id: "route-casing",
-      type: "line",
-      source: "route-source",
-      layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": isDarkMap ? "#0d47a1" : "#174ea6", "line-width": 12 }
-    });
-  }
+  try {
+    const routeDataToUse = currentRouteGeoJson || {
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: [] }
+    };
 
-  if (!map.getLayer("route-line")) {
-    map.addLayer({
-      id: "route-line",
-      type: "line",
-      source: "route-source",
-      layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": isDarkMap ? "#38bdf8" : "#4285f4", "line-width": 7 }
-    });
-  }
+    if (!map.getSource("route-source")) {
+      map.addSource("route-source", {
+        type: "geojson",
+        data: routeDataToUse
+      });
+    } else {
+      map.getSource("route-source").setData(routeDataToUse);
+    }
 
-  if (!map.getSource("track-source")) {
-    map.addSource("track-source", {
-      type: "geojson",
-      data: { type: "Feature", geometry: { type: "LineString", coordinates: trackCoords } }
-    });
-  }
+    if (!map.getLayer("route-casing")) {
+      map.addLayer({
+        id: "route-casing",
+        type: "line",
+        source: "route-source",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: {
+          "line-color": isDarkMap ? "#0284c7" : "#174ea6",
+          "line-width": 13
+        }
+      });
+    }
 
-  if (!map.getLayer("track-line")) {
-    map.addLayer({
-      id: "track-line",
-      type: "line",
-      source: "track-source",
-      layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": "#00e676", "line-width": 4, "line-dasharray": [2, 1] }
-    });
-  }
+    if (!map.getLayer("route-line")) {
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: "route-source",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: {
+          "line-color": isDarkMap ? "#38bdf8" : "#4285f4",
+          "line-width": 7.5
+        }
+      });
+    }
+
+    const trackDataToUse = {
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: trackCoords }
+    };
+
+    if (!map.getSource("track-source")) {
+      map.addSource("track-source", {
+        type: "geojson",
+        data: trackDataToUse
+      });
+    } else {
+      map.getSource("track-source").setData(trackDataToUse);
+    }
+
+    if (!map.getLayer("track-line")) {
+      map.addLayer({
+        id: "track-line",
+        type: "line",
+        source: "track-source",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: {
+          "line-color": "#00e676",
+          "line-width": 4,
+          "line-dasharray": [2, 1]
+        }
+      });
+    }
+  } catch (e) {}
 }
 
 map.on("load", () => {
-  setupRouteAndTrackLayers();
+  ensureRouteAndTrackLayers();
   syncThemeButtonsUI();
 });
 
-map.on("style.load", () => {
-  setupRouteAndTrackLayers();
-});
+map.on("style.load", ensureRouteAndTrackLayers);
+map.on("styledata", ensureRouteAndTrackLayers);
+map.on("idle", ensureRouteAndTrackLayers);
 
 function toggleMapTheme() {
   isDarkMap = !isDarkMap;
   map.setStyle(isDarkMap ? MAP_STYLES.night : MAP_STYLES.day);
+
+  // スタイル切替直後の描画完了に合わせて複数タイミングで確実にルート線を再描画
+  map.once("style.load", ensureRouteAndTrackLayers);
+  setTimeout(ensureRouteAndTrackLayers, 300);
+  setTimeout(ensureRouteAndTrackLayers, 900);
+
   syncThemeButtonsUI();
   if (isDarkMap) unlockBadge("night_rider");
   const msg = isDarkMap
@@ -850,9 +919,9 @@ function syncThemeButtonsUI() {
   }
 }
 
+// ユーザーが指で地図を動かしたら追従を一時解除（10秒後に自動復帰）
 map.on("dragstart", () => {
-  autoFollow = false;
-  document.getElementById("recenterBtn").classList.add("active");
+  setAutoFollowState(false, true);
 });
 
 function togglePitchView() {
@@ -869,21 +938,8 @@ function toggleHeadingUp() {
   map.easeTo({ bearing: isHeadingUp ? currentHeading : 0, duration: 400 });
 }
 
-function recenterMap() {
-  autoFollow = true;
-  document.getElementById("recenterBtn").classList.remove("active");
-  toggleMapMenu(false);
-  map.easeTo({
-    center: [currentLng, currentLat],
-    zoom: 16,
-    bearing: isHeadingUp ? currentHeading : 0,
-    pitch: isPitch3D ? 45 : 0,
-    duration: 500
-  });
-}
-
 // ==========================================
-// 9. 大通り優先（狭路回避）ルートオプション
+// 10. 大通り優先（狭路回避）ルートオプション
 // ==========================================
 function toggleMajorRoadMode() {
   isMajorRoadPriority = !isMajorRoadPriority;
@@ -942,7 +998,7 @@ function pickBestRouteForRider(routes) {
 }
 
 // ==========================================
-// 10. 音声コマンド（ハンズフリー目的地＆経由地追加）
+// 11. 音声コマンド（ハンズフリー目的地＆経由地追加）
 // ==========================================
 function startVoiceCommand() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1008,7 +1064,7 @@ function processVoiceTranscript(text) {
 }
 
 // ==========================================
-// 11. 気象API＆走行風体感温度計算
+// 12. 気象API＆走行風体感温度計算
 // ==========================================
 async function fetchRealWeather(lat, lng, placeName = null) {
   const now = Date.now();
@@ -1073,7 +1129,7 @@ function updateWeatherUI() {
 }
 
 // ==========================================
-// 12. ルート検索・急カーブ検出・ETA表示・暖簾一覧
+// 13. ルート検索・急カーブ検出・ETA表示・暖簾一覧
 // ==========================================
 function setNorenOpen(openState) {
   isNorenOpen = openState;
@@ -1137,8 +1193,7 @@ function jumpToRouteStep(idx) {
 
   const st = generatedSteps[idx];
   if (st && st.location) {
-    autoFollow = false;
-    document.getElementById("recenterBtn").classList.add("active");
+    setAutoFollowState(false, true);
     map.easeTo({ center: st.location, zoom: 16.5, pitch: 45, duration: 600 });
   }
 }
@@ -1170,9 +1225,7 @@ function resetToStandbyMode() {
   offRouteStreakCount = 0;
   currentRouteGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: [] } };
 
-  if (map.getSource("route-source")) {
-    map.getSource("route-source").setData(currentRouteGeoJson);
-  }
+  ensureRouteAndTrackLayers();
   if (destMarker) { destMarker.remove(); destMarker = null; }
   if (waypointMarker) { waypointMarker.remove(); waypointMarker = null; }
 
@@ -1271,9 +1324,7 @@ async function searchAndRoute(isReroute = false) {
       geometry: route.geometry
     };
 
-    if (map.getSource("route-source")) {
-      map.getSource("route-source").setData(currentRouteGeoJson);
-    }
+    ensureRouteAndTrackLayers();
 
     if (destMarker) destMarker.remove();
     destMarker = new maplibregl.Marker({ color: "#ea4335" })
@@ -1290,14 +1341,20 @@ async function searchAndRoute(isReroute = false) {
         .addTo(map);
     }
 
+    // 検索直後は全体ルートを2.2秒見せたあと、自動的に現在地（🏍️マーク）へズームして自動追従開始
     if (!isReroute && !isSimActive) {
-      autoFollow = false;
-      document.getElementById("recenterBtn").classList.add("active");
+      setAutoFollowState(false, false);
       const bounds = routeCoordinates.reduce(
         (b, c) => b.extend(c),
         new maplibregl.LngLatBounds(routeCoordinates[0], routeCoordinates[0])
       );
       map.fitBounds(bounds, { padding: 50, pitch: 20 });
+
+      setTimeout(() => {
+        if (isRouteActive && !autoFollow) {
+          recenterMap(true);
+        }
+      }, 2200);
     }
 
     const allOsrmSteps = route.legs.flatMap((leg, legIdx) =>
@@ -1500,7 +1557,7 @@ function applyGeneratedStep(idx, speak = true) {
 }
 
 // ==========================================
-// 13. 4段階シビア車線誘導（高速70km/h以上は自動2倍）＆ GPS精度フィルタ付リルート
+// 14. 4段階シビア車線誘導（高速70km/h以上は自動2倍）＆ GPS精度フィルタ付リルート
 // ==========================================
 function evaluateLiveNavigation(lat, lng, speedKmh, gpsAccuracyM = 10) {
   if (!isRouteActive || generatedSteps.length === 0) return;
@@ -1582,7 +1639,7 @@ function evaluateLiveNavigation(lat, lng, speedKmh, gpsAccuracyM = 10) {
 }
 
 // ==========================================
-// 14. 周辺スポット検索＆経由地組み込み (Overpass API)
+// 15. 周辺スポット検索＆経由地組み込み (Overpass API)
 // ==========================================
 async function searchNearbyPOI(type, setAsWaypoint = false) {
   setNorenOpen(false);
@@ -1635,8 +1692,7 @@ async function searchNearbyPOI(type, setAsWaypoint = false) {
       return;
     }
 
-    autoFollow = false;
-    document.getElementById("recenterBtn").classList.add("active");
+    setAutoFollowState(false, true);
     map.easeTo({ center: [nearest.lon, nearest.lat], zoom: 15 });
     speakJapanese(`近くに${data.elements.length}件の${labels[type]}が見つかりました。一番近いのは${nearestName}です。`);
   } catch (e) {
@@ -1645,7 +1701,7 @@ async function searchNearbyPOI(type, setAsWaypoint = false) {
 }
 
 // ==========================================
-// 15. マイガレージ（案内設定・お気に入り・履歴・称号）
+// 16. マイガレージ（案内設定・お気に入り・履歴・称号）
 // ==========================================
 function openGarageModal(tab = "settings") {
   switchGarageTab(tab);
@@ -1765,17 +1821,12 @@ function resetTripLog() {
   maxLeanRight = 0;
   rideStartTime = Date.now();
   trackCoords = [[currentLng, currentLat]];
-  if (map.getSource("track-source")) {
-    map.getSource("track-source").setData({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: trackCoords }
-    });
-  }
+  ensureRouteAndTrackLayers();
   updateLiveStatsUI();
 }
 
 // ==========================================
-// 16. 実GPS・ジャイロ・画面スリープ防止
+// 17. 実GPS・ジャイロ・画面スリープ防止
 // ==========================================
 async function requestWakeLock() {
   try {
@@ -1833,6 +1884,7 @@ function toggleGPS() {
 
   requestWakeLock();
   enableGyroSensors();
+  setAutoFollowState(true, false);
   document.getElementById("gpsStatusText").textContent = "測位中...";
 
   watchId = navigator.geolocation.watchPosition(
@@ -1859,7 +1911,7 @@ function toggleGPS() {
 }
 
 // ==========================================
-// 17. ユーティリティ・デモ・モーダル制御
+// 18. ユーティリティ・デモ・モーダル制御
 // ==========================================
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
@@ -1973,11 +2025,12 @@ function closeModals() {
 }
 
 // ==========================================
-// 18. 初期起動処理
+// 19. 初期起動処理
 // ==========================================
 resetToStandbyMode();
 syncThemeButtonsUI();
 syncSettingsSlidersUI();
+setAutoFollowState(true, false);
 fetchRealWeather(currentLat, currentLng, "横浜・みなとみらい付近");
 
 window.addEventListener("load", () => {

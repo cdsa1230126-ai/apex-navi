@@ -83,16 +83,18 @@
         <div class="lean-max" id="leanMax">MAX L0° / R0°</div>
       </div>
 
-      <!-- 右上: 誤タップ防止・収納式コントロールパネル -->
+      <!-- 右上: 独立した「現在地追従」ボタン ＋ 収納式コントロールパネル -->
       <div class="map-controls">
-        <button class="map-mini-btn menu-toggle-btn" id="menuToggleBtn" onclick="toggleMapMenu()">⚙️ メニュー</button>
+        <div class="map-top-btn-row">
+          <button class="map-mini-btn recenter-floating-btn following" id="recenterBtn" onclick="recenterMap()">🎯 追従中</button>
+          <button class="map-mini-btn menu-toggle-btn" id="menuToggleBtn" onclick="toggleMapMenu()">⚙️ メニュー</button>
+        </div>
         <div class="map-menu-drawer" id="mapMenuDrawer">
           <button class="map-mini-btn sim-btn" onclick="toggleSimulationMode(); toggleMapMenu(false)">🧪 実走シミュレーション</button>
           <button class="map-mini-btn setting-btn" onclick="openGarageModal('settings'); toggleMapMenu(false)">🎛️ 案内距離・音声設定</button>
           <button class="map-mini-btn theme-btn" id="mapThemeBtn" onclick="toggleMapTheme()">☀️ 地図: 昼モード</button>
           <button class="map-mini-btn style-btn" id="tiltModeBtn" onclick="togglePitchView()">📐 視点: ナビ3D</button>
           <button class="map-mini-btn active" id="headingModeBtn" onclick="toggleHeadingUp()">🧭 ヘディングUP</button>
-          <button class="map-mini-btn" id="recenterBtn" onclick="recenterMap()">🎯 現在地へ戻る</button>
           <button class="map-mini-btn garage-btn" onclick="openGarageModal('fav'); toggleMapMenu(false)">🏠 マイガレージ・称号</button>
           <button class="map-mini-btn tut-btn" onclick="openTutorial(0); toggleMapMenu(false)">🎮 チュートリアル</button>
           <button class="map-mini-btn sos" id="sosHoldBtn"

@@ -103,9 +103,33 @@ html, body { width: 100%; height: 100dvh; overflow: hidden; background-color: va
 .intercom-toast { position: absolute; top: 8px; left: 8px; right: 8px; background: rgba(8, 12, 20, 0.9); backdrop-filter: blur(8px); border: 1px solid #334155; border-radius: 10px; padding: 6px 10px; font-size: 11.5px; font-weight: 700; line-height: 1.35; color: #e2e8f0; z-index: 500; display: flex; align-items: center; gap: 7px; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.35); }
 .intercom-toast.active-nav { border: 1.5px solid var(--accent-cyan); color: #ffffff; }
 
-/* マップ右上: 収納式コントロール */
+/* マップ右上: 独立した追従ボタン ＋ 収納式コントロール */
 .map-controls { position: absolute; top: 56px; right: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; z-index: 500; }
-.menu-toggle-btn { padding: 7px 11px; font-size: 12px; background: rgba(11, 17, 30, 0.94); border: 1.5px solid #475569; color: #f8fafc; }
+.map-top-btn-row { display: flex; gap: 5px; align-items: center; }
+
+.recenter-floating-btn {
+  padding: 7px 10px;
+  font-size: 11.5px;
+  background: rgba(11, 17, 30, 0.94);
+  border: 1.5px solid #475569;
+  color: #94a3b8;
+  transition: all 0.2s ease;
+}
+.recenter-floating-btn.following {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  background: rgba(0, 176, 255, 0.16);
+}
+.recenter-floating-btn.detached {
+  background: var(--accent-cyan);
+  border-color: #ffffff;
+  color: #04121f;
+  font-weight: 900;
+  box-shadow: 0 0 14px rgba(0, 176, 255, 0.65);
+  animation: pulse 1.3s infinite;
+}
+
+.menu-toggle-btn { padding: 7px 10px; font-size: 11.5px; background: rgba(11, 17, 30, 0.94); border: 1.5px solid #475569; color: #f8fafc; }
 .menu-toggle-btn.open { border-color: var(--accent-cyan); color: var(--accent-cyan); }
 .map-menu-drawer { display: none; flex-direction: column; gap: 6px; background: rgba(8, 12, 20, 0.95); backdrop-filter: blur(10px); border: 1px solid #334155; border-radius: 12px; padding: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65); min-width: 174px; }
 .map-menu-drawer.open { display: flex; animation: fadeInDown 0.18s ease-out; }
