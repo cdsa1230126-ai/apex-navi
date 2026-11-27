@@ -52,7 +52,7 @@
           上の検索欄か🎙️音声で目的地を入力して出発
         </div>
         <div class="lane-guide" id="laneGuide">
-          <div class="lane-box standby-msg" id="standbySubMsg">1000m・500m・200m・100mの4段階車線案内 / 逸脱35m判定</div>
+          <div class="lane-box standby-msg" id="standbySubMsg">1000m・500m・200m・100m車線案内（70km/h以上で自動2倍）</div>
         </div>
       </section>
 
@@ -82,7 +82,7 @@
       <div class="map-controls">
         <button class="map-mini-btn menu-toggle-btn" id="menuToggleBtn" onclick="toggleMapMenu()">⚙️ メニュー</button>
         <div class="map-menu-drawer" id="mapMenuDrawer">
-          <button class="map-mini-btn setting-btn" onclick="openGarageModal('settings'); toggleMapMenu(false)">🎛️ 案内距離・感度設定</button>
+          <button class="map-mini-btn setting-btn" onclick="openGarageModal('settings'); toggleMapMenu(false)">🎛️ 案内距離・高速2倍設定</button>
           <button class="map-mini-btn theme-btn" id="mapThemeBtn" onclick="toggleMapTheme()">☀️ 地図: 昼モード</button>
           <button class="map-mini-btn style-btn" id="tiltModeBtn" onclick="togglePitchView()">📐 視点: ナビ3D</button>
           <button class="map-mini-btn active" id="headingModeBtn" onclick="toggleHeadingUp()">🧭 ヘディングUP</button>
@@ -100,10 +100,11 @@
       <!-- ベクター地図コンテナ -->
       <div id="vectorMap"></div>
 
-      <!-- 左下: 現在速度HUD -->
-      <div class="gps-speed-hud" id="speedHud">
+      <!-- 左下: 現在速度HUD（高速2倍モード表示付き） -->
+      <div class="gps-speed-hud" id="speedHud" onclick="openGarageModal('settings')">
+        <div class="highway-badge" id="highwayBadge" style="display:none;">🛣️ 高速2倍案内</div>
         <div class="speed-val" id="speedVal">0</div>
-        <div class="speed-unit" id="speedUnit">km/h (待機)</div>
+        <div class="speed-unit" id="speedUnit">km/h (一般道)</div>
       </div>
 
       <!-- 右下: 走行ログ＆GPSステータスHUD -->
@@ -187,38 +188,48 @@
         <button class="tab-btn" id="tabBtnBadge" onclick="switchGarageTab('badge')">🏆 称号</button>
       </div>
 
-      <!-- タブ0: 案内距離・逸脱感度カスタマイズ設定 -->
+      <!-- タブ0: 案内距離・高速2倍・逸脱感度カスタマイズ設定 -->
       <div class="tab-pane active" id="paneSettings">
         <div class="scroll-box settings-scroll">
-          <div class="setting-group">
-            <div class="setting-head">
-              <span>① 車線誘導（1回目・早め予告）</span>
-              <span class="setting-val" id="valStage1">1000m手前</span>
+          <!-- 高速道路（70km/h以上）自動2倍拡張トグル -->
+          <div class="setting-group highway-box">
+            <div class="setting-head" style="margin-bottom:4px;">
+              <span>🛣️ 高速道路モード（70km/h以上で2倍）</span>
+              <button class="toggle-pill-btn active" id="highwayAutoBtn" onclick="toggleHighwayAutoScale()">ON (自動2倍)</button>
             </div>
-            <input type="range" class="nav-slider" id="sliderStage1" min="600" max="2000" step="100" value="1000" oninput="onSettingSliderChange()" />
-            <div class="setting-hint">「今のうちに右/左車線へ移動」を最初に知らせる距離</div>
+            <div class="setting-hint" id="highwayPreviewText">
+              現在: 一般道基準 (1000m / 500m / 200m / 100m) → 70km/h以上で (2000m / 1000m / 400m / 200m)
+            </div>
           </div>
 
           <div class="setting-group">
             <div class="setting-head">
-              <span>② 中間告知（2回目・車線確認）</span>
-              <span class="setting-val" id="valStage2">500m手前</span>
+              <span>① 車線誘導（1回目・一般道基準）</span>
+              <span class="setting-val" id="valStage1">1000m (高速2000m)</span>
+            </div>
+            <input type="range" class="nav-slider" id="sliderStage1" min="600" max="2000" step="100" value="1000" oninput="onSettingSliderChange()" />
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-head">
+              <span>② 中間告知（2回目・一般道基準）</span>
+              <span class="setting-val" id="valStage2">500m (高速1000m)</span>
             </div>
             <input type="range" class="nav-slider" id="sliderStage2" min="300" max="900" step="50" value="500" oninput="onSettingSliderChange()" />
           </div>
 
           <div class="setting-group">
             <div class="setting-head">
-              <span>③ 減速準備（3回目・ウインカー目安）</span>
-              <span class="setting-val" id="valStage3">200m手前</span>
+              <span>③ 減速準備（3回目・一般道基準）</span>
+              <span class="setting-val" id="valStage3">200m (高速400m)</span>
             </div>
             <input type="range" class="nav-slider" id="sliderStage3" min="150" max="350" step="25" value="200" oninput="onSettingSliderChange()" />
           </div>
 
           <div class="setting-group">
             <div class="setting-head">
-              <span>④ 直前案内（4回目・交差点手前）</span>
-              <span class="setting-val" id="valStage4">100m手前</span>
+              <span>④ 直前案内（4回目・一般道基準）</span>
+              <span class="setting-val" id="valStage4">100m (高速200m)</span>
             </div>
             <input type="range" class="nav-slider" id="sliderStage4" min="50" max="150" step="10" value="100" oninput="onSettingSliderChange()" />
           </div>
@@ -226,10 +237,9 @@
           <div class="setting-group warn-border">
             <div class="setting-head">
               <span>🔄 ルート逸脱リルート判定距離</span>
-              <span class="setting-val warn-txt" id="valRerouteDist">35m外れたら</span>
+              <span class="setting-val warn-txt" id="valRerouteDist">35m (高速70m)</span>
             </div>
             <input type="range" class="nav-slider" id="sliderRerouteDist" min="20" max="80" step="5" value="35" oninput="onSettingSliderChange()" />
-            <div class="setting-hint">数値を小さくするほど即座に再計算します（推奨: 30〜40m）</div>
           </div>
 
           <div style="display:flex;gap:6px;margin-top:4px;">

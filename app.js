@@ -1,12 +1,13 @@
 // ==========================================
-// 1. ユーザーカスタマイズ可能なナビ案内・逸脱設定
+// 1. ユーザーカスタマイズ可能なナビ案内・高速2倍自動拡張設定
 // ==========================================
 const DEFAULT_NAV_CONFIG = {
-  stage1Dist: 1000,   // ① 車線誘導（1回目・早め予告）
-  stage2Dist: 500,    // ② 中間告知（2回目）
-  stage3Dist: 200,    // ③ 減速準備（3回目）
-  stage4Dist: 100,    // ④ 直前案内（4回目）
-  rerouteDist: 35     // ルート逸脱リルート判定距離(m)
+  stage1Dist: 1000,       // ① 車線誘導（1回目・一般道基準）
+  stage2Dist: 500,        // ② 中間告知（2回目・一般道基準）
+  stage3Dist: 200,        // ③ 減速準備（3回目・一般道基準）
+  stage4Dist: 100,        // ④ 直前案内（4回目・一般道基準）
+  rerouteDist: 35,        // ルート逸脱リルート判定距離(m)
+  highwayAutoScale: true  // 時速70km以上で案内距離を自動2倍にする
 };
 
 let navConfig = Object.assign(
@@ -15,6 +16,71 @@ let navConfig = Object.assign(
   JSON.parse(localStorage.getItem("apex_nav_config") || "{}")
 );
 
+// 高速道路巡航モード判定（70km/h以上でON、55km/h以下でOFFのヒステリシス制御）
+let isHighwaySpeedMode = false;
+
+function updateHighwaySpeedState(speedKmh) {
+  if (!navConfig.highwayAutoScale) {
+    isHighwaySpeedMode = false;
+    updateSpeedModeHUD(speedKmh);
+    return;
+  }
+
+  const prevMode = isHighwaySpeedMode;
+  if (!isHighwaySpeedMode && speedKmh >= 70) {
+    isHighwaySpeedMode = true;
+  } else if (isHighwaySpeedMode && speedKmh <= 55) {
+    isHighwaySpeedMode = false;
+  }
+
+  updateSpeedModeHUD(speedKmh);
+
+  if (prevMode !== isHighwaySpeedMode && isRouteActive) {
+    const modeMsg = isHighwaySpeedMode
+      ? "高速巡航を検知しました。車線案内と分岐予告の距離を2倍に広げます。"
+      : "一般道ペースに戻りました。標準の案内距離に戻します。";
+    document.getElementById("voiceSubtitle").textContent = `🛣️ ${modeMsg}`;
+    speakJapanese(modeMsg);
+  }
+}
+
+function updateSpeedModeHUD(speedKmh) {
+  const hud = document.getElementById("speedHud");
+  const badge = document.getElementById("highwayBadge");
+  const unit = document.getElementById("speedUnit");
+  if (!hud || !badge || !unit) return;
+
+  if (isHighwaySpeedMode) {
+    hud.classList.add("highway-active");
+    badge.style.display = "block";
+    unit.textContent = "km/h (高速2倍)";
+  } else {
+    hud.classList.remove("highway-active");
+    badge.style.display = "none";
+    unit.textContent = isGpsActive ? "km/h (一般道)" : "km/h (待機)";
+  }
+}
+
+function getEffectiveNavDistances() {
+  const mult = (navConfig.highwayAutoScale && isHighwaySpeedMode) ? 2 : 1;
+  return {
+    mult,
+    s1: navConfig.stage1Dist * mult,
+    s2: navConfig.stage2Dist * mult,
+    s3: navConfig.stage3Dist * mult,
+    s4: navConfig.stage4Dist * mult,
+    reroute: navConfig.rerouteDist * mult
+  };
+}
+
+function formatJapaneseMeters(meters) {
+  if (meters >= 1000) {
+    const km = meters / 1000;
+    return Number.isInteger(km) ? `${km}キロ` : `${km.toFixed(1)}キロ`;
+  }
+  return `${meters}メートル`;
+}
+
 function saveNavConfig() {
   localStorage.setItem("apex_nav_config", JSON.stringify(navConfig));
   updateStandbyConfigCaption();
@@ -22,9 +88,17 @@ function saveNavConfig() {
 
 function updateStandbyConfigCaption() {
   const el = document.getElementById("standbySubMsg");
-  if (el) {
-    el.textContent = `${navConfig.stage1Dist}m・${navConfig.stage2Dist}m・${navConfig.stage3Dist}m・${navConfig.stage4Dist}mの4段階車線案内 / 逸脱${navConfig.rerouteDist}m判定`;
-  }
+  if (!el) return;
+  const hwText = navConfig.highwayAutoScale ? "70km/h以上で自動2倍" : "高速2倍OFF";
+  el.textContent = `${navConfig.stage1Dist}m・${navConfig.stage2Dist}m・${navConfig.stage3Dist}m・${navConfig.stage4Dist}m車線案内（${hwText}）`;
+}
+
+function toggleHighwayAutoScale() {
+  navConfig.highwayAutoScale = !navConfig.highwayAutoScale;
+  if (!navConfig.highwayAutoScale) isHighwaySpeedMode = false;
+  syncSettingsSlidersUI();
+  saveNavConfig();
+  updateSpeedModeHUD(currentSpeedKmh);
 }
 
 function syncSettingsSlidersUI() {
@@ -34,11 +108,35 @@ function syncSettingsSlidersUI() {
   document.getElementById("sliderStage4").value = navConfig.stage4Dist;
   document.getElementById("sliderRerouteDist").value = navConfig.rerouteDist;
 
-  document.getElementById("valStage1").textContent = `${navConfig.stage1Dist}m手前`;
-  document.getElementById("valStage2").textContent = `${navConfig.stage2Dist}m手前`;
-  document.getElementById("valStage3").textContent = `${navConfig.stage3Dist}m手前`;
-  document.getElementById("valStage4").textContent = `${navConfig.stage4Dist}m手前`;
-  document.getElementById("valRerouteDist").textContent = `${navConfig.rerouteDist}m外れたら`;
+  const hwBtn = document.getElementById("highwayAutoBtn");
+  if (hwBtn) {
+    hwBtn.classList.toggle("active", navConfig.highwayAutoScale);
+    hwBtn.textContent = navConfig.highwayAutoScale ? "ON (自動2倍)" : "OFF (固定)";
+  }
+
+  const hwSuffix = navConfig.highwayAutoScale;
+  document.getElementById("valStage1").textContent = hwSuffix
+    ? `${navConfig.stage1Dist}m (高速${navConfig.stage1Dist * 2}m)`
+    : `${navConfig.stage1Dist}m手前`;
+  document.getElementById("valStage2").textContent = hwSuffix
+    ? `${navConfig.stage2Dist}m (高速${navConfig.stage2Dist * 2}m)`
+    : `${navConfig.stage2Dist}m手前`;
+  document.getElementById("valStage3").textContent = hwSuffix
+    ? `${navConfig.stage3Dist}m (高速${navConfig.stage3Dist * 2}m)`
+    : `${navConfig.stage3Dist}m手前`;
+  document.getElementById("valStage4").textContent = hwSuffix
+    ? `${navConfig.stage4Dist}m (高速${navConfig.stage4Dist * 2}m)`
+    : `${navConfig.stage4Dist}m手前`;
+  document.getElementById("valRerouteDist").textContent = hwSuffix
+    ? `${navConfig.rerouteDist}m (高速${navConfig.rerouteDist * 2}m)`
+    : `${navConfig.rerouteDist}m外れたら`;
+
+  const preview = document.getElementById("highwayPreviewText");
+  if (preview) {
+    preview.textContent = navConfig.highwayAutoScale
+      ? `一般道 (${navConfig.stage1Dist}/${navConfig.stage2Dist}/${navConfig.stage3Dist}/${navConfig.stage4Dist}m) → 70km/h以上で (${navConfig.stage1Dist * 2}/${navConfig.stage2Dist * 2}/${navConfig.stage3Dist * 2}/${navConfig.stage4Dist * 2}m)`
+      : "高速道路でも一般道と同じ固定距離で案内します";
+  }
 }
 
 function onSettingSliderChange() {
@@ -48,12 +146,12 @@ function onSettingSliderChange() {
   let s4 = Number(document.getElementById("sliderStage4").value);
   const rr = Number(document.getElementById("sliderRerouteDist").value);
 
-  // 段階順序が逆転しないように自動補正
   if (s2 >= s1) s2 = s1 - 100;
   if (s3 >= s2) s3 = s2 - 50;
   if (s4 >= s3) s4 = s3 - 30;
 
   navConfig = {
+    ...navConfig,
     stage1Dist: s1,
     stage2Dist: s2,
     stage3Dist: s3,
@@ -69,12 +167,13 @@ function resetNavSettingsDefault() {
   navConfig = { ...DEFAULT_NAV_CONFIG };
   syncSettingsSlidersUI();
   saveNavConfig();
-  speakJapanese("案内距離とルート逸脱感度を初期設定に戻しました。");
+  speakJapanese("案内距離と高速自動2倍設定を初期値に戻しました。");
 }
 
 function testVoiceAnnouncement() {
+  const eff = getEffectiveNavDistances();
   speakJapanese(
-    `およそ${navConfig.stage1Dist}メートル先で右折です。今のうちに一番右の車線へ移動しておきましょう。`
+    `およそ${formatJapaneseMeters(eff.s1)}先で右折です。今のうちに一番右の車線へ移動しておきましょう。`
   );
 }
 
@@ -99,7 +198,6 @@ let activeDestCoord = null;
 let activeWaypoint = null;
 let wakeLock = null;
 
-// 時間帯に応じた自動ダーク地図判定
 const initialHour = new Date().getHours();
 let isDarkMap = initialHour >= 18 || initialHour < 6;
 
@@ -108,7 +206,6 @@ const MAP_STYLES = {
   night: "https://tiles.openfreemap.org/styles/dark"
 };
 
-// 気象＆テレメトリー
 let realTempC = 16;
 let realWindMs = 3.2;
 let realPrecipMm = 0;
@@ -121,14 +218,12 @@ let rideStartTime = Date.now();
 let lastWeatherFetch = 0;
 let lastRestAlertMin = 0;
 
-// 自動リルート・距離＆到着時刻管理
 let currentRouteGeoJson = null;
 let routeCoordinates = [];
 let remainingRouteMeters = 0;
 let remainingRouteSeconds = 0;
 let lastRerouteTime = 0;
 
-// 永続ストレージ（お気に入り・履歴・称号）
 const DEFAULT_FAVS = ["箱根大観山", "宮ヶ瀬ダム 鳥居原ふれあいの館", "大黒パーキングエリア", "江ノ島"];
 let favoriteSpots = JSON.parse(localStorage.getItem("apex_favs") || "null") || DEFAULT_FAVS;
 let rideHistory = JSON.parse(localStorage.getItem("apex_history") || "[]");
@@ -200,9 +295,9 @@ const tutorialMissions = [
   {
     badge: "MISSION 1 / 4",
     avatar: "🎧",
-    sub: "STEP 1: 4-STAGE PROACTIVE VOICE",
-    title: "1000m→500m→200m→100m 段階車線案内",
-    desc: "APIキー不要！右折・左折の手前1kmから車線変更を促し、500m・200m・100mの4段階でカウントダウン音声案内します（距離は設定画面で変更可）。",
+    sub: "STEP 1: 4-STAGE & HIGHWAY 2X",
+    title: "一般道4段階 ＋ 高速70km/h以上は自動2倍案内",
+    desc: "一般道では1000m・500m・200m・100m手前で車線誘導し、時速70km以上の高速道路に入ると自動で2000m・1000m・400m・200mに広がります！",
     apiTag: "使用API: Web Speech API（登録不要・無料）",
     btnText: "🔊 音声テストを実行して次へ ▶"
   },
@@ -211,7 +306,7 @@ const tutorialMissions = [
     avatar: "🛰️",
     sub: "STEP 2: GPS & 35m STRICT REROUTE",
     title: "GPS現在地 ＆ 35mシビア自動リルート",
-    desc: "ルートから35m外れると即座に再検索します。位置情報の許可を押してGPSとリアル気象を接続しましょう！",
+    desc: "ルートから35m（高速時は70m）外れると即座に再検索します。位置情報の許可を押してGPSとリアル気象を接続しましょう！",
     apiTag: "使用API: Geolocation API ＋ Open-Meteo気象API",
     btnText: "📡 GPSと気象データを接続する ▶"
   },
@@ -263,7 +358,7 @@ function renderTutorialStep() {
 
 function runTutorialStep() {
   if (tutStep === 0) {
-    speakJapanese("インカム接続完了です。1キロ手前からの4段階車線案内が有効です。");
+    speakJapanese("インカム接続完了です。時速70キロ以上の高速巡航時は案内距離が自動で2倍になります。");
     tutStep = 1;
     renderTutorialStep();
   } else if (tutStep === 1) {
@@ -867,7 +962,7 @@ function activateNavModeUI() {
   mainBtn.classList.remove("standby-btn");
   mainBtn.classList.add("primary");
   document.getElementById("mainNextLabel").textContent = "▶ 次の案内へ";
-  document.getElementById("mainNextSub").textContent = "4段階自動誘導ON";
+  document.getElementById("mainNextSub").textContent = "高速2倍自動連動";
 
   const goBtn = document.getElementById("routeActionBtn");
   goBtn.textContent = "終了";
@@ -1038,7 +1133,7 @@ function applyGeneratedStep(idx, speak = true) {
 }
 
 // ==========================================
-// 10. 4段階シビア車線誘導（1000m→500m→200m→100m）＆ 35m自動リルート
+// 10. 4段階シビア車線誘導（高速70km/h以上は自動2倍）＆ 自動リルート
 // ==========================================
 function evaluateLiveNavigation(lat, lng, speedKmh) {
   if (!isRouteActive || generatedSteps.length === 0) return;
@@ -1050,7 +1145,10 @@ function evaluateLiveNavigation(lat, lng, speedKmh) {
     updateEtaDisplay(distToDestM, distToDestM / estSpeedMs);
   }
 
-  // 2) ユーザー設定値に基づく4段階音声＋車線誘導
+  // 現在の速度帯（一般道 1倍 / 高速70km/h以上 2倍）に応じた実効案内距離を取得
+  const eff = getEffectiveNavDistances();
+
+  // 2) 4段階音声＋車線誘導
   const curStep = generatedSteps[currentStepIdx];
   if (curStep && curStep.location) {
     const stepLng = curStep.location[0];
@@ -1061,49 +1159,44 @@ function evaluateLiveNavigation(lat, lng, speedKmh) {
       ? `あと ${(distM / 1000).toFixed(1)}km`
       : `あと ${distM}m`;
 
-    const s1 = navConfig.stage1Dist; // 例: 1000m
-    const s2 = navConfig.stage2Dist; // 例: 500m
-    const s3 = navConfig.stage3Dist; // 例: 200m
-    const s4 = navConfig.stage4Dist; // 例: 100m
-
     const action = curStep.turnAction || curStep.headline;
     const laneMsg = curStep.laneAction || curStep.headline;
+    const passThreshold = eff.mult === 2 ? 45 : 28; // 高速時は通過判定も少し広げる
 
-    if (distM <= s1 && distM > s2 && !curStep._announcedStage1) {
+    if (distM <= eff.s1 && distM > eff.s2 && !curStep._announcedStage1) {
       curStep._announcedStage1 = true;
-      const msg = `およそ${s1 >= 1000 ? "1キロ" : s1 + "メートル"}先、${action}です。今のうちに${laneMsg}。`;
+      const msg = `およそ${formatJapaneseMeters(eff.s1)}先、${action}です。今のうちに${laneMsg}。`;
       document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
       speakJapanese(msg);
-    } else if (distM <= s2 && distM > s3 && !curStep._announcedStage2) {
+    } else if (distM <= eff.s2 && distM > eff.s3 && !curStep._announcedStage2) {
       curStep._announcedStage2 = true;
-      const msg = `あと${s2}メートルで${action}です。${laneMsg}。`;
+      const msg = `あと${formatJapaneseMeters(eff.s2)}で${action}です。${laneMsg}。`;
       document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
       speakJapanese(msg);
-    } else if (distM <= s3 && distM > s4 && !curStep._announcedStage3) {
+    } else if (distM <= eff.s3 && distM > eff.s4 && !curStep._announcedStage3) {
       curStep._announcedStage3 = true;
-      const msg = `あと${s3}メートル、${action}の準備をしてください。`;
+      const msg = `あと${formatJapaneseMeters(eff.s3)}、${action}の準備をしてください。`;
       document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
       speakJapanese(msg);
-    } else if (distM <= s4 && distM > 28 && !curStep._announcedStage4) {
+    } else if (distM <= eff.s4 && distM > passThreshold && !curStep._announcedStage4) {
       curStep._announcedStage4 = true;
-      const msg = `まもなく${s4}メートル先、${action}です。`;
+      const msg = `まもなく${formatJapaneseMeters(eff.s4)}先、${action}です。`;
       document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
       speakJapanese(msg);
-    } else if (distM <= 28 && currentStepIdx < generatedSteps.length - 1) {
-      // 交差点を通過したら自動で次のステップへ送り、次の交差点が近ければ即座に予告
+    } else if (distM <= passThreshold && currentStepIdx < generatedSteps.length - 1) {
       currentStepIdx++;
       applyGeneratedStep(currentStepIdx, true);
     }
   }
 
-  // 3) シビアなルート逸脱チェック（デフォルト35m、ユーザー設定値で判定）
+  // 3) シビアなルート逸脱チェック（一般道35m / 高速70m）
   if (routeCoordinates.length > 2 && Date.now() - lastRerouteTime > 10000) {
     let minDistM = Infinity;
     for (let i = 0; i < routeCoordinates.length; i += 2) {
       const d = haversineKm(lat, lng, routeCoordinates[i][1], routeCoordinates[i][0]) * 1000;
       if (d < minDistM) minDistM = d;
     }
-    if (minDistM > navConfig.rerouteDist) {
+    if (minDistM > eff.reroute) {
       lastRerouteTime = Date.now();
       const msg = `ルートから${Math.round(minDistM)}メートル外れました。現在地から再計算します。`;
       document.getElementById("voiceSubtitle").textContent = `🔄 ${msg}`;
@@ -1351,6 +1444,8 @@ function toggleGPS() {
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
     isGpsActive = false;
+    isHighwaySpeedMode = false;
+    updateSpeedModeHUD(0);
     document.getElementById("gpsToggleBtn").classList.remove("gps-on");
     document.getElementById("gpsBtnLabel").textContent = "📡 GPS開始";
     document.getElementById("gpsBtnSub").textContent = "自動案内＆リルート";
@@ -1411,8 +1506,10 @@ function toggleGPS() {
       if (kmh > maxSpeedKmh && kmh < 250) maxSpeedKmh = kmh;
 
       document.getElementById("speedVal").textContent = kmh;
-      document.getElementById("speedUnit").textContent = "km/h (GPS)";
       document.getElementById("speedHud").classList.add("live");
+
+      // 時速70km以上で高速2倍モードへ自動切替
+      updateHighwaySpeedState(kmh);
 
       const elapsedMin = Math.floor((Date.now() - rideStartTime) / 60000);
       const hh = String(Math.floor(elapsedMin / 60)).padStart(2, "0");
@@ -1427,9 +1524,10 @@ function toggleGPS() {
       const altStr = altitude !== null ? `${Math.round(altitude)}m` : "--m";
       document.getElementById("headingText").textContent = `方位: ${currentHeading}° / 標高: ${altStr}`;
 
+      const eff = getEffectiveNavDistances();
       document.getElementById("gpsToggleBtn").classList.add("gps-on");
-      document.getElementById("gpsBtnLabel").textContent = "🛰️ GPS稼働中";
-      document.getElementById("gpsBtnSub").textContent = `逸脱${navConfig.rerouteDist}m監視中`;
+      document.getElementById("gpsBtnLabel").textContent = isHighwaySpeedMode ? "🛣️ 高速2倍稼働" : "🛰️ GPS稼働中";
+      document.getElementById("gpsBtnSub").textContent = `逸脱${eff.reroute}m監視中`;
       document.getElementById("gpsDot").classList.add("active");
       document.getElementById("gpsStatusText").textContent = "GPS測位OK";
 
