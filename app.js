@@ -1,5 +1,85 @@
 // ==========================================
-// 1. 状態管理変数
+// 1. ユーザーカスタマイズ可能なナビ案内・逸脱設定
+// ==========================================
+const DEFAULT_NAV_CONFIG = {
+  stage1Dist: 1000,   // ① 車線誘導（1回目・早め予告）
+  stage2Dist: 500,    // ② 中間告知（2回目）
+  stage3Dist: 200,    // ③ 減速準備（3回目）
+  stage4Dist: 100,    // ④ 直前案内（4回目）
+  rerouteDist: 35     // ルート逸脱リルート判定距離(m)
+};
+
+let navConfig = Object.assign(
+  {},
+  DEFAULT_NAV_CONFIG,
+  JSON.parse(localStorage.getItem("apex_nav_config") || "{}")
+);
+
+function saveNavConfig() {
+  localStorage.setItem("apex_nav_config", JSON.stringify(navConfig));
+  updateStandbyConfigCaption();
+}
+
+function updateStandbyConfigCaption() {
+  const el = document.getElementById("standbySubMsg");
+  if (el) {
+    el.textContent = `${navConfig.stage1Dist}m・${navConfig.stage2Dist}m・${navConfig.stage3Dist}m・${navConfig.stage4Dist}mの4段階車線案内 / 逸脱${navConfig.rerouteDist}m判定`;
+  }
+}
+
+function syncSettingsSlidersUI() {
+  document.getElementById("sliderStage1").value = navConfig.stage1Dist;
+  document.getElementById("sliderStage2").value = navConfig.stage2Dist;
+  document.getElementById("sliderStage3").value = navConfig.stage3Dist;
+  document.getElementById("sliderStage4").value = navConfig.stage4Dist;
+  document.getElementById("sliderRerouteDist").value = navConfig.rerouteDist;
+
+  document.getElementById("valStage1").textContent = `${navConfig.stage1Dist}m手前`;
+  document.getElementById("valStage2").textContent = `${navConfig.stage2Dist}m手前`;
+  document.getElementById("valStage3").textContent = `${navConfig.stage3Dist}m手前`;
+  document.getElementById("valStage4").textContent = `${navConfig.stage4Dist}m手前`;
+  document.getElementById("valRerouteDist").textContent = `${navConfig.rerouteDist}m外れたら`;
+}
+
+function onSettingSliderChange() {
+  let s1 = Number(document.getElementById("sliderStage1").value);
+  let s2 = Number(document.getElementById("sliderStage2").value);
+  let s3 = Number(document.getElementById("sliderStage3").value);
+  let s4 = Number(document.getElementById("sliderStage4").value);
+  const rr = Number(document.getElementById("sliderRerouteDist").value);
+
+  // 段階順序が逆転しないように自動補正
+  if (s2 >= s1) s2 = s1 - 100;
+  if (s3 >= s2) s3 = s2 - 50;
+  if (s4 >= s3) s4 = s3 - 30;
+
+  navConfig = {
+    stage1Dist: s1,
+    stage2Dist: s2,
+    stage3Dist: s3,
+    stage4Dist: s4,
+    rerouteDist: rr
+  };
+
+  syncSettingsSlidersUI();
+  saveNavConfig();
+}
+
+function resetNavSettingsDefault() {
+  navConfig = { ...DEFAULT_NAV_CONFIG };
+  syncSettingsSlidersUI();
+  saveNavConfig();
+  speakJapanese("案内距離とルート逸脱感度を初期設定に戻しました。");
+}
+
+function testVoiceAnnouncement() {
+  speakJapanese(
+    `およそ${navConfig.stage1Dist}メートル先で右折です。今のうちに一番右の車線へ移動しておきましょう。`
+  );
+}
+
+// ==========================================
+// 2. 状態管理・永続データ（マイガレージ＆称号）
 // ==========================================
 let currentLat = 35.4535;
 let currentLng = 139.6345;
@@ -13,11 +93,13 @@ let watchId = null;
 let isGpsActive = false;
 let isRouteActive = false;
 let isNorenOpen = false;
-let isMajorRoadPriority = true; // 大通り優先（狭路回避）ON
+let isMajorRoadPriority = true;
 let activeDestName = "";
+let activeDestCoord = null;
+let activeWaypoint = null;
 let wakeLock = null;
 
-// 時間帯に応じた自動ダーク地図判定（17:30〜翌5:30は夜間省電力ダークモード）
+// 時間帯に応じた自動ダーク地図判定
 const initialHour = new Date().getHours();
 let isDarkMap = initialHour >= 18 || initialHour < 6;
 
@@ -26,7 +108,7 @@ const MAP_STYLES = {
   night: "https://tiles.openfreemap.org/styles/dark"
 };
 
-// 気象＆テレメトリーデータ
+// 気象＆テレメトリー
 let realTempC = 16;
 let realWindMs = 3.2;
 let realPrecipMm = 0;
@@ -39,11 +121,41 @@ let rideStartTime = Date.now();
 let lastWeatherFetch = 0;
 let lastRestAlertMin = 0;
 
-// ルート座標キャッシュ（地図スタイル切替時の再描画用）
+// 自動リルート・距離＆到着時刻管理
 let currentRouteGeoJson = null;
+let routeCoordinates = [];
+let remainingRouteMeters = 0;
+let remainingRouteSeconds = 0;
+let lastRerouteTime = 0;
+
+// 永続ストレージ（お気に入り・履歴・称号）
+const DEFAULT_FAVS = ["箱根大観山", "宮ヶ瀬ダム 鳥居原ふれあいの館", "大黒パーキングエリア", "江ノ島"];
+let favoriteSpots = JSON.parse(localStorage.getItem("apex_favs") || "null") || DEFAULT_FAVS;
+let rideHistory = JSON.parse(localStorage.getItem("apex_history") || "[]");
+let unlockedBadges = JSON.parse(localStorage.getItem("apex_badges") || "{}");
+
+const RIDER_BADGES = [
+  { id: "first_gps", icon: "🛰️", title: "ナビ起動", desc: "GPSを接続して走行を開始" },
+  { id: "corner_25", icon: "🏍️", title: "峠マスター", desc: "バンク角 25°以上を記録" },
+  { id: "night_rider", icon: "🌙", title: "ナイトライダー", desc: "夜間ダークモードで走行" },
+  { id: "rain_rider", icon: "☔", title: "全天候ツアラー", desc: "雨天・ウェット路面を走破" },
+  { id: "dist_50", icon: "🛣️", title: "ロングツアラー", desc: "1回の走行で50km以上走破" },
+  { id: "voice_pro", icon: "🎙️", title: "ハンズフリー達人", desc: "音声指令で目的地・経由地を操作" }
+];
+
+function unlockBadge(badgeId) {
+  if (unlockedBadges[badgeId]) return;
+  const b = RIDER_BADGES.find(item => item.id === badgeId);
+  if (!b) return;
+  unlockedBadges[badgeId] = Date.now();
+  localStorage.setItem("apex_badges", JSON.stringify(unlockedBadges));
+  const msg = `称号「${b.title}」を獲得しました！`;
+  document.getElementById("voiceSubtitle").textContent = `🏆 ${msg}`;
+  speakJapanese(msg);
+}
 
 // ==========================================
-// 2. 右上メニュー開閉＆SOS長押し安全ロック
+// 3. 右上メニュー開閉＆SOS長押し安全ロック
 // ==========================================
 let isMenuOpen = false;
 let sosHoldTimer = null;
@@ -81,26 +193,26 @@ function cancelSosHold() {
 }
 
 // ==========================================
-// 3. ゲーム風チュートリアルモード
+// 4. ゲーム風チュートリアルモード
 // ==========================================
 let tutStep = 0;
 const tutorialMissions = [
   {
     badge: "MISSION 1 / 4",
     avatar: "🎧",
-    sub: "STEP 1: VOICE & INTERCOM",
-    title: "インカム音声ガイダンス起動",
-    desc: "このナビは面倒なAPIキー登録や会員登録は一切不要です！まずはスマホの音声案内をオンにして、先導ライダーの声をテストしましょう。",
+    sub: "STEP 1: 4-STAGE PROACTIVE VOICE",
+    title: "1000m→500m→200m→100m 段階車線案内",
+    desc: "APIキー不要！右折・左折の手前1kmから車線変更を促し、500m・200m・100mの4段階でカウントダウン音声案内します（距離は設定画面で変更可）。",
     apiTag: "使用API: Web Speech API（登録不要・無料）",
     btnText: "🔊 音声テストを実行して次へ ▶"
   },
   {
     badge: "MISSION 2 / 4",
     avatar: "🛰️",
-    sub: "STEP 2: GPS & LIVE WEATHER",
-    title: "GPS現在地 ＆ リアル天気リンク",
-    desc: "下のボタンを押すとスマホの「位置情報の許可」が出ます。「許可」を押すと、現在地の速度・方位と、Open-Meteo気象APIからのリアル気温・体感温度が自動で繋がります！",
-    apiTag: "使用API: Geolocation API ＋ Open-Meteo気象API（無料）",
+    sub: "STEP 2: GPS & 35m STRICT REROUTE",
+    title: "GPS現在地 ＆ 35mシビア自動リルート",
+    desc: "ルートから35m外れると即座に再検索します。位置情報の許可を押してGPSとリアル気象を接続しましょう！",
+    apiTag: "使用API: Geolocation API ＋ Open-Meteo気象API",
     btnText: "📡 GPSと気象データを接続する ▶"
   },
   {
@@ -108,17 +220,17 @@ const tutorialMissions = [
     avatar: "📐",
     sub: "STEP 3: LEAN ANGLE SENSOR",
     title: "バンク角（リーンアングル）計測起動",
-    desc: "コーナリング中のバイクの傾き（左右バンク角）を計測するジャイロセンサーを起動します。iPhoneの場合は「動作と方向へのアクセス」で許可を押してください。",
-    apiTag: "使用API: DeviceOrientation API（スマホ内蔵センサー）",
+    desc: "コーナリング中の左右バンク角を計測します。25°以上で「峠マスター」称号が解除されます！",
+    apiTag: "使用API: DeviceOrientation API",
     btnText: "📐 バンク角センサーを有効化する ▶"
   },
   {
     badge: "MISSION 4 / 4",
     avatar: "🏁",
     sub: "FINAL MISSION: ROUTE SIMULATION",
-    title: "先読みルート検索を体験して完了！",
-    desc: "最後に、無料地図API（OSRM）を使って「江ノ島」までの実戦ルートと「2つ先の信号で右折」の先読み車線ガイドをテストしてチュートリアル完了です！",
-    apiTag: "使用API: Nominatim ＆ OSRM ルートAPI（無料）",
+    title: "先読み＆急カーブ警戒ルートを体験！",
+    desc: "最後に「江ノ島」までの大通り優先ルートと先読み車線ガイドを検索してチュートリアル完了です！",
+    apiTag: "使用API: Nominatim ＆ OSRM ルートAPI",
     btnText: "🚀 サンプルルートを検索して出発する！"
   }
 ];
@@ -151,7 +263,7 @@ function renderTutorialStep() {
 
 function runTutorialStep() {
   if (tutStep === 0) {
-    speakJapanese("インカム接続完了です。次はGPSと気象データをリンクします。");
+    speakJapanese("インカム接続完了です。1キロ手前からの4段階車線案内が有効です。");
     tutStep = 1;
     renderTutorialStep();
   } else if (tutStep === 1) {
@@ -172,7 +284,7 @@ function runTutorialStep() {
 }
 
 // ==========================================
-// 4. Googleマップ風ベクター地図（昼＆夜間省電力ダーク切替対応）
+// 5. ベクター地図（昼＆夜間省電力ダーク切替対応）
 // ==========================================
 const map = new maplibregl.Map({
   container: "vectorMap",
@@ -193,6 +305,7 @@ const riderMarker = new maplibregl.Marker({ element: riderEl })
   .addTo(map);
 
 let destMarker = null;
+let waypointMarker = null;
 let poiMarkers = [];
 let generatedSteps = [];
 let currentStepIdx = 0;
@@ -212,10 +325,7 @@ function setupRouteAndTrackLayers() {
       type: "line",
       source: "route-source",
       layout: { "line-join": "round", "line-cap": "round" },
-      paint: {
-        "line-color": isDarkMap ? "#0d47a1" : "#174ea6",
-        "line-width": 12
-      }
+      paint: { "line-color": isDarkMap ? "#0d47a1" : "#174ea6", "line-width": 12 }
     });
   }
 
@@ -225,10 +335,7 @@ function setupRouteAndTrackLayers() {
       type: "line",
       source: "route-source",
       layout: { "line-join": "round", "line-cap": "round" },
-      paint: {
-        "line-color": isDarkMap ? "#38bdf8" : "#4285f4",
-        "line-width": 7
-      }
+      paint: { "line-color": isDarkMap ? "#38bdf8" : "#4285f4", "line-width": 7 }
     });
   }
 
@@ -255,7 +362,6 @@ map.on("load", () => {
   syncThemeButtonsUI();
 });
 
-// スタイル切替（昼モード ⇔ 夜間省電力ダークモード）完了時にルート線を再復元
 map.on("style.load", () => {
   setupRouteAndTrackLayers();
 });
@@ -264,8 +370,9 @@ function toggleMapTheme() {
   isDarkMap = !isDarkMap;
   map.setStyle(isDarkMap ? MAP_STYLES.night : MAP_STYLES.day);
   syncThemeButtonsUI();
+  if (isDarkMap) unlockBadge("night_rider");
   const msg = isDarkMap
-    ? "夜間・省電力ダーク地図に切り替えました。有機EL画面の消費電力と眩しさを抑えます。"
+    ? "夜間・省電力ダーク地図に切り替えました。"
     : "昼間の高視認ライト地図に切り替えました。";
   document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
   speakJapanese(msg);
@@ -277,9 +384,7 @@ function syncThemeButtonsUI() {
   const quickBtn = document.getElementById("quickThemeBtn");
 
   viewport.classList.toggle("night-mode", isDarkMap);
-  if (menuBtn) {
-    menuBtn.textContent = isDarkMap ? "🌙 地図: 夜間ダーク" : "☀️ 地図: 昼モード";
-  }
+  if (menuBtn) menuBtn.textContent = isDarkMap ? "🌙 地図: 夜間ダーク" : "☀️ 地図: 昼モード";
   if (quickBtn) {
     quickBtn.textContent = isDarkMap ? "☀️ 昼マップへ" : "🌙 夜間ダーク";
     quickBtn.classList.toggle("night-active", isDarkMap);
@@ -293,8 +398,7 @@ map.on("dragstart", () => {
 
 function togglePitchView() {
   isPitch3D = !isPitch3D;
-  const btn = document.getElementById("tiltModeBtn");
-  btn.textContent = isPitch3D ? "📐 視点: ナビ3D" : "📐 視点: 真上2D";
+  document.getElementById("tiltModeBtn").textContent = isPitch3D ? "📐 視点: ナビ3D" : "📐 視点: 真上2D";
   map.easeTo({ pitch: isPitch3D ? 45 : 0, duration: 400 });
 }
 
@@ -320,7 +424,7 @@ function recenterMap() {
 }
 
 // ==========================================
-// 5. 大通り優先（狭路回避）ルートオプション
+// 6. 大通り優先（狭路回避）ルートオプション
 // ==========================================
 function toggleMajorRoadMode() {
   isMajorRoadPriority = !isMajorRoadPriority;
@@ -340,13 +444,11 @@ function toggleMajorRoadMode() {
   document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
   speakJapanese(msg);
 
-  // すでに目的地が入力されていれば即座にルートを再計算
   if (isRouteActive && document.getElementById("destInput").value.trim()) {
     searchAndRoute();
   }
 }
 
-// 複数候補ルートから「大通り（幹線道路）の比率が最も高いルート」を選抜するアルゴリズム
 function pickBestRouteForRider(routes) {
   if (!routes || routes.length === 0) return null;
   if (!isMajorRoadPriority || routes.length === 1) return routes[0];
@@ -358,19 +460,17 @@ function pickBestRouteForRider(routes) {
     let majorDistance = 0;
     let totalDistance = Math.max(1, r.distance);
 
-    if (r.legs && r.legs[0] && r.legs[0].steps) {
-      r.legs[0].steps.forEach((st) => {
+    r.legs.forEach((leg) => {
+      if (!leg.steps) return;
+      leg.steps.forEach((st) => {
         const ref = st.ref || "";
         const name = st.name || "";
-        // 国道・県道番号(ref)がある道路や「〜通り」「〜街道」「バイパス」は幹線道路として高く評価
         const isMajor =
           ref.length > 0 ||
           /(国道|県道|都道|府道|道道|バイパス|街道|大通り|幹線|環状)/.test(name);
-        if (isMajor) {
-          majorDistance += st.distance;
-        }
+        if (isMajor) majorDistance += st.distance;
       });
-    }
+    });
 
     const majorRatio = majorDistance / totalDistance;
     if (majorRatio > bestMajorScore) {
@@ -383,7 +483,73 @@ function pickBestRouteForRider(routes) {
 }
 
 // ==========================================
-// 6. 気象API＆走行風体感温度計算
+// 7. 音声コマンド（ハンズフリー目的地＆経由地追加）
+// ==========================================
+function startVoiceCommand() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    const fallback = prompt("音声指令を入力してください（例: 近くのガソリンスタンドに寄る / 江ノ島へ行く）");
+    if (fallback) processVoiceTranscript(fallback);
+    return;
+  }
+
+  const btn = document.getElementById("micSearchBtn");
+  btn.classList.add("listening");
+  document.getElementById("voiceSubtitle").textContent = "🎙️ 聞き取り中...「近くのガソリンスタンドに寄る」「大観山へ行く」など話してください";
+
+  const rec = new SpeechRec();
+  rec.lang = "ja-JP";
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+
+  rec.onresult = (event) => {
+    btn.classList.remove("listening");
+    const transcript = event.results[0][0].transcript;
+    document.getElementById("voiceSubtitle").textContent = `🎙️ 認識: 「${transcript}」`;
+    unlockBadge("voice_pro");
+    processVoiceTranscript(transcript);
+  };
+
+  rec.onerror = () => {
+    btn.classList.remove("listening");
+    speakJapanese("音声を聞き取れませんでした。もう一度お試しください。");
+  };
+
+  rec.onend = () => {
+    btn.classList.remove("listening");
+  };
+
+  rec.start();
+}
+
+function processVoiceTranscript(text) {
+  if (/ガソリン|給油|スタンド/.test(text)) {
+    searchNearbyPOI("fuel", true);
+    return;
+  }
+  if (/コンビニ|セブン|ローソン|ファミマ/.test(text)) {
+    searchNearbyPOI("convenience", true);
+    return;
+  }
+  if (/トイレ|道の駅|休憩/.test(text)) {
+    searchNearbyPOI("toilets", true);
+    return;
+  }
+  if (/案内終了|ルート解除|キャンセル/.test(text)) {
+    resetToStandbyMode();
+    speakJapanese("ルート案内を終了しました。");
+    return;
+  }
+
+  const cleaned = text.replace(/(へ行く|に行く|まで案内|まで|へ案内|に行って|を検索)/g, "").trim();
+  if (cleaned) {
+    document.getElementById("destInput").value = cleaned;
+    searchAndRoute();
+  }
+}
+
+// ==========================================
+// 8. 気象API＆走行風体感温度計算
 // ==========================================
 async function fetchRealWeather(lat, lng, placeName = null) {
   const now = Date.now();
@@ -398,14 +564,13 @@ async function fetchRealWeather(lat, lng, placeName = null) {
       realTempC = Math.round(data.current.temperature_2m);
       realWindMs = Number(data.current.wind_speed_10m.toFixed(1));
       realPrecipMm = data.current.precipitation;
+      if (realPrecipMm > 0) unlockBadge("rain_rider");
       const elev = data.elevation ? ` (標高${Math.round(data.elevation)}m)` : "";
       const label = placeName ? `${placeName}${elev}` : `現在地${elev}`;
       document.getElementById("weatherSpot").textContent = label;
       updateWeatherUI();
     }
-  } catch (e) {
-    console.warn("気象取得スキップ:", e);
-  }
+  } catch (e) {}
 }
 
 function calcRiderWindChill(tempC, speedKmh, windMs) {
@@ -449,7 +614,7 @@ function updateWeatherUI() {
 }
 
 // ==========================================
-// 7. ルート検索＆暖簾（プルダウン）式・案内一覧
+// 9. ルート検索・急カーブ検出・ETA表示・暖簾一覧
 // ==========================================
 function setNorenOpen(openState) {
   isNorenOpen = openState;
@@ -466,12 +631,10 @@ function toggleRouteDropdown() {
     setNorenOpen(false);
     return;
   }
-
   if (!isRouteActive || generatedSteps.length === 0) {
     generatedSteps = demoScenarios;
     currentStepIdx = 0;
   }
-
   renderNorenList();
   setNorenOpen(true);
 }
@@ -479,8 +642,9 @@ function toggleRouteDropdown() {
 function renderNorenList() {
   const subEl = document.getElementById("routeListSub");
   const modeTag = isMajorRoadPriority ? "【大通り優先】" : "【標準最短】";
+  const wpTag = activeWaypoint ? `（経由: ${activeWaypoint.name}）` : "";
   if (activeDestName) {
-    subEl.textContent = `${modeTag}「${activeDestName}」までの案内全${generatedSteps.length}件（タップで移動・再タップで収納）`;
+    subEl.textContent = `${modeTag}「${activeDestName}」${wpTag} 案内全${generatedSteps.length}件`;
   } else {
     subEl.textContent = "先読みシナリオ一覧（タップで切替・上のカード再タップで収納）";
   }
@@ -489,12 +653,13 @@ function renderNorenList() {
   container.innerHTML = generatedSteps.map((st, idx) => {
     const isCurrent = idx === currentStepIdx && isRouteActive;
     const isWarn = st.cardClass === "highlight-amber";
+    const isCurve = st.cardClass === "highlight-red";
     return `
-      <div class="step-row ${isCurrent ? "current" : ""} ${isWarn ? "warn-row" : ""}" onclick="jumpToRouteStep(${idx})">
+      <div class="step-row ${isCurrent ? "current" : ""} ${isWarn ? "warn-row" : ""} ${isCurve ? "curve-row" : ""}" onclick="jumpToRouteStep(${idx})">
         <div class="step-turn-badge">${st.icon || "↑"}</div>
         <div class="step-body">
           <div class="step-top-line">
-            <span class="step-num-tag">${isCurrent ? "● 現在案内中 / " : ""}STEP ${idx + 1} ・ ${st.signalText}</span>
+            <span class="step-num-tag">${isCurrent ? "● 案内中 / " : ""}STEP ${idx + 1} ・ ${st.signalText}</span>
             <span class="step-dist-tag">${st.dist}</span>
           </div>
           <div class="step-main-text">${st.headline}</div>
@@ -515,96 +680,116 @@ function jumpToRouteStep(idx) {
   if (st && st.location) {
     autoFollow = false;
     document.getElementById("recenterBtn").classList.add("active");
-    map.easeTo({
-      center: st.location,
-      zoom: 16.5,
-      pitch: 45,
-      duration: 600
-    });
+    map.easeTo({ center: st.location, zoom: 16.5, pitch: 45, duration: 600 });
   }
+}
+
+function updateEtaDisplay(distMeters, durationSeconds) {
+  const etaPill = document.getElementById("etaPill");
+  if (!isRouteActive || distMeters <= 0) {
+    etaPill.style.display = "none";
+    return;
+  }
+  const arrival = new Date(Date.now() + durationSeconds * 1000);
+  const hh = String(arrival.getHours()).padStart(2, "0");
+  const mm = String(arrival.getMinutes()).padStart(2, "0");
+  const kmStr = (distMeters / 1000).toFixed(1);
+  etaPill.style.display = "inline-block";
+  etaPill.textContent = `残${kmStr}km・${hh}:${mm}着`;
 }
 
 function resetToStandbyMode() {
   setNorenOpen(false);
   isRouteActive = false;
   activeDestName = "";
+  activeDestCoord = null;
+  activeWaypoint = null;
   generatedSteps = [];
   currentStepIdx = 0;
+  routeCoordinates = [];
   currentRouteGeoJson = { type: "Feature", geometry: { type: "LineString", coordinates: [] } };
 
   if (map.getSource("route-source")) {
     map.getSource("route-source").setData(currentRouteGeoJson);
   }
-  if (destMarker) {
-    destMarker.remove();
-    destMarker = null;
-  }
+  if (destMarker) { destMarker.remove(); destMarker = null; }
+  if (waypointMarker) { waypointMarker.remove(); waypointMarker = null; }
 
   const card = document.getElementById("guidanceCard");
   card.className = "guidance-card standby";
   document.getElementById("listHintPill").style.display = "none";
+  document.getElementById("etaPill").style.display = "none";
   document.getElementById("signalLabel").textContent = isMajorRoadPriority
     ? "📍 フリー走行モード（大通り優先・狭路回避ON）"
     : "📍 フリー走行モード（標準最短ルート設定）";
   document.getElementById("signalDots").innerHTML = "";
   document.getElementById("distTag").textContent = "STANDBY";
-  document.getElementById("actionHeadline").textContent = "上の検索欄から目的地を入力して出発";
+  document.getElementById("actionHeadline").textContent = "上の検索欄か🎙️音声で目的地を入力して出発";
   document.getElementById("laneGuide").innerHTML =
-    `<div class="lane-box standby-msg">GPSと気象・バンク角のリアルタイム監視はそのまま利用できます</div>`;
+    `<div class="lane-box standby-msg" id="standbySubMsg"></div>`;
+  updateStandbyConfigCaption();
 
   const toast = document.getElementById("intercomToast");
   toast.classList.remove("active-nav");
-  document.getElementById("voiceSubtitle").textContent = "目的地を検索するか、GPSを開始するとインカム音声案内が有効になります。";
+  document.getElementById("voiceSubtitle").textContent = "「近くのガソリンスタンドに寄る」など音声指令にも対応しています。";
 
   const mainBtn = document.getElementById("mainNextBtn");
   mainBtn.classList.remove("primary");
   mainBtn.classList.add("standby-btn");
-  document.getElementById("mainNextLabel").textContent = "🔍 目的地を入力";
-  document.getElementById("mainNextSub").textContent = "案内待機中";
+  document.getElementById("mainNextLabel").textContent = "🎙️ 音声指令";
+  document.getElementById("mainNextSub").textContent = "目的地・経由地";
 
   const goBtn = document.getElementById("routeActionBtn");
   goBtn.textContent = "検索";
   goBtn.classList.remove("cancel-mode");
   goBtn.onclick = searchAndRoute;
-
-  document.querySelectorAll(".chip-btn").forEach(b => {
-    if (b.id !== "quickThemeBtn") b.classList.remove("active");
-  });
 }
 
-async function searchAndRoute() {
+async function searchAndRoute(isReroute = false) {
   setNorenOpen(false);
   const query = document.getElementById("destInput").value.trim();
-  if (!query) {
+  if (!query && !activeDestCoord) {
     document.getElementById("destInput").focus();
     return;
   }
 
-  const policyLabel = isMajorRoadPriority ? "大通り優先で" : "";
-  speakJapanese(`${query}まで${policyLabel}ツーリングルートを検索します。`);
-  document.getElementById("actionHeadline").textContent = `「${query}」へ${policyLabel}計算中...`;
+  if (!isReroute) {
+    const policyLabel = isMajorRoadPriority ? "大通り優先で" : "";
+    speakJapanese(`${query}まで${policyLabel}ツーリングルートを検索します。`);
+    document.getElementById("actionHeadline").textContent = `「${query}」へ${policyLabel}計算中...`;
+  }
 
   try {
-    const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&accept-language=ja`;
-    const geoRes = await fetch(geoUrl);
-    const geoData = await geoRes.json();
+    let destLat, destLng, destName;
+    if (isReroute && activeDestCoord) {
+      destLat = activeDestCoord.lat;
+      destLng = activeDestCoord.lng;
+      destName = activeDestName;
+    } else {
+      const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&accept-language=ja`;
+      const geoRes = await fetch(geoUrl);
+      const geoData = await geoRes.json();
 
-    if (!geoData || geoData.length === 0) {
-      alert("目的地が見つかりませんでした。別の地名や施設名をお試しください。");
-      resetToStandbyMode();
-      return;
+      if (!geoData || geoData.length === 0) {
+        alert("目的地が見つかりませんでした。別の地名や施設名をお試しください。");
+        resetToStandbyMode();
+        return;
+      }
+
+      destLat = parseFloat(geoData[0].lat);
+      destLng = parseFloat(geoData[0].lon);
+      destName = geoData[0].display_name.split(",")[0];
+      activeDestName = destName;
+      activeDestCoord = { lat: destLat, lng: destLng };
+      await fetchRealWeather(destLat, destLng, `${destName} 到着予報`);
     }
 
-    const destLat = parseFloat(geoData[0].lat);
-    const destLng = parseFloat(geoData[0].lon);
-    const destName = geoData[0].display_name.split(",")[0];
-    activeDestName = destName;
+    const coordStr = activeWaypoint
+      ? `${currentLng},${currentLat};${activeWaypoint.lng},${activeWaypoint.lat};${destLng},${destLat}`
+      : `${currentLng},${currentLat};${destLng},${destLat}`;
 
-    await fetchRealWeather(destLat, destLng, `${destName} 到着予報`);
-
-    // 原付二種(125cc)モード時は自動車専用道・高速道路を除外
     const excludeParam = bikeClassIdx === 2 ? "&exclude=motorway" : "";
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${currentLng},${currentLat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&alternatives=true${excludeParam}`;
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&steps=true&alternatives=true${excludeParam}`;
     const routeRes = await fetch(osrmUrl);
     const routeData = await routeRes.json();
 
@@ -615,6 +800,10 @@ async function searchAndRoute() {
     }
 
     const route = pickBestRouteForRider(routeData.routes);
+    routeCoordinates = route.geometry.coordinates;
+    remainingRouteMeters = route.distance;
+    remainingRouteSeconds = route.duration;
+
     currentRouteGeoJson = {
       type: "Feature",
       geometry: route.geometry
@@ -628,28 +817,42 @@ async function searchAndRoute() {
     destMarker = new maplibregl.Marker({ color: "#ea4335" })
       .setLngLat([destLng, destLat])
       .setPopup(new maplibregl.Popup().setHTML(`<b>🏁 ${destName}</b>`))
-      .addTo(map)
-      .togglePopup();
+      .addTo(map);
+    if (!isReroute) destMarker.togglePopup();
 
-    autoFollow = false;
-    document.getElementById("recenterBtn").classList.add("active");
-    const coords = route.geometry.coordinates;
-    const bounds = coords.reduce(
-      (b, c) => b.extend(c),
-      new maplibregl.LngLatBounds(coords[0], coords[0])
+    if (waypointMarker) waypointMarker.remove();
+    if (activeWaypoint) {
+      waypointMarker = new maplibregl.Marker({ color: "#00e676" })
+        .setLngLat([activeWaypoint.lng, activeWaypoint.lat])
+        .setPopup(new maplibregl.Popup().setHTML(`<b>📍 経由: ${activeWaypoint.name}</b>`))
+        .addTo(map);
+    }
+
+    if (!isReroute) {
+      autoFollow = false;
+      document.getElementById("recenterBtn").classList.add("active");
+      const bounds = routeCoordinates.reduce(
+        (b, c) => b.extend(c),
+        new maplibregl.LngLatBounds(routeCoordinates[0], routeCoordinates[0])
+      );
+      map.fitBounds(bounds, { padding: 50, pitch: 20 });
+    }
+
+    const allOsrmSteps = route.legs.flatMap((leg, legIdx) =>
+      leg.steps.map(s => ({ ...s, _legIdx: legIdx }))
     );
-    map.fitBounds(bounds, { padding: 50, pitch: 20 });
-
-    const rawSteps = route.legs[0].steps;
-    generatedSteps = buildRiderProactiveSteps(rawSteps, destName, route.distance);
+    generatedSteps = buildRiderProactiveSteps(allOsrmSteps, destName, route.distance);
     currentStepIdx = 0;
     activateNavModeUI();
-    applyGeneratedStep(0, true);
+    updateEtaDisplay(remainingRouteMeters, remainingRouteSeconds);
+    applyGeneratedStep(0, !isReroute);
 
   } catch (err) {
     console.error(err);
-    alert("ルート検索中に通信エラーが発生しました。");
-    resetToStandbyMode();
+    if (!isReroute) {
+      alert("ルート検索中に通信エラーが発生しました。");
+      resetToStandbyMode();
+    }
   }
 }
 
@@ -664,7 +867,7 @@ function activateNavModeUI() {
   mainBtn.classList.remove("standby-btn");
   mainBtn.classList.add("primary");
   document.getElementById("mainNextLabel").textContent = "▶ 次の案内へ";
-  document.getElementById("mainNextSub").textContent = "音声再生＆進行";
+  document.getElementById("mainNextSub").textContent = "4段階自動誘導ON";
 
   const goBtn = document.getElementById("routeActionBtn");
   goBtn.textContent = "終了";
@@ -684,22 +887,78 @@ function buildRiderProactiveSteps(osrmSteps, destName, totalDistMeters) {
     const loc = st.maneuver.location || null;
 
     if (type === "arrive") {
+      if (activeWaypoint && st._legIdx === 0) {
+        steps.push({
+          icon: "⛽",
+          turnAction: `${activeWaypoint.name}へ左折進入`,
+          laneAction: "左車線へ寄って進入準備",
+          signals: 0,
+          signalText: `経由地「${activeWaypoint.name}」に到着`,
+          dist: "経由地",
+          headline: `${activeWaypoint.name} に立ち寄り・休憩`,
+          cardClass: "highlight-green",
+          location: loc,
+          lanes: [{ text: "↰ 進入", state: "recommended" }, { text: "↑", state: "" }, { text: "↑", state: "" }],
+          voice: `まもなく経由地の${activeWaypoint.name}です。左折進入に備えて減速してください。`
+        });
+      } else {
+        steps.push({
+          icon: "🏁",
+          turnAction: `${destName}周辺へ到着`,
+          laneAction: "駐輪スペースを確認して減速",
+          signals: 0,
+          signalText: `目的地「${destName}」に到着`,
+          dist: "ゴール",
+          headline: `${destName} 周辺に到着！駐輪場を確認`,
+          cardClass: "highlight-cyan",
+          location: loc,
+          lanes: [{ text: "↑", state: "" }, { text: "🏁 到着", state: "recommended" }, { text: "↑", state: "" }],
+          voice: `まもなく目的地、${destName}周辺に到着します。バイクを停められる場所を探しましょう。お疲れ様でした。`
+        });
+      }
+    } else if (mod.includes("sharp")) {
       steps.push({
-        icon: "🏁",
+        icon: "🌀",
+        turnAction: `${roadName}の急カーブ`,
+        laneAction: "直線区間で十分に減速",
         signals: 0,
-        signalText: `目的地「${destName}」に到着`,
-        dist: "ゴール",
-        headline: `${destName} 周辺に到着！駐輪場を確認`,
-        cardClass: "highlight-cyan",
+        signalText: `急カーブ・ヘアピン警戒 (${roadName})`,
+        dist: `約 ${Math.max(100, distM)}m先`,
+        headline: "急カーブ注意！直線区間で十分に減速",
+        cardClass: "highlight-red",
         location: loc,
-        lanes: [{ text: "↑", state: "" }, { text: "🏁 到着", state: "recommended" }, { text: "↑", state: "" }],
-        voice: `まもなく目的地、${destName}周辺に到着します。バイクを停められる場所を探しましょう。お疲れ様でした。`
+        lanes: [
+          { text: "⚠️ 減速", state: "curve-warn" },
+          { text: "🌀 急カーブ", state: "curve-warn" },
+          { text: "⚠️ 減速", state: "curve-warn" }
+        ],
+        voice: `この先、${roadName}に急カーブがあります。進入前の直線でしっかりスピードを落としてください。`
+      });
+    } else if (type === "merge") {
+      steps.push({
+        icon: "🔀",
+        turnAction: `${roadName}へ合流`,
+        laneAction: "本線の速度に合わせて加速合流",
+        signals: 0,
+        signalText: `本線合流ポイント (${roadName})`,
+        dist: `約 ${Math.max(120, distM)}m先`,
+        headline: "合流注意！本線の車両速度に合わせて加速",
+        cardClass: "highlight-amber",
+        location: loc,
+        lanes: [
+          { text: "🔀 合流", state: "parked-warn" },
+          { text: "↑ 本線", state: "recommended" },
+          { text: "↑", state: "" }
+        ],
+        voice: `まもなく${roadName}へ合流します。死角に注意し、本線の流れに合わせてスムーズに合流しましょう。`
       });
     } else if (mod.includes("right")) {
       steps.push({
         icon: "↱",
+        turnAction: `${roadName}へ右折`,
+        laneAction: "一番右の車線へ移動",
         signals: 2,
-        signalText: `2つ先の交差点で右折 (${roadName})`,
+        signalText: `この先で右折 (${roadName})`,
         dist: `約 ${Math.max(150, distM)}m先`,
         headline: "今のうちに一番右の車線へ移動",
         cardClass: "highlight-green",
@@ -709,14 +968,16 @@ function buildRiderProactiveSteps(osrmSteps, destName, totalDistMeters) {
           { text: "↑", state: "" },
           { text: "↱ 右折", state: "recommended" }
         ],
-        voice: `${destName}方面へ、2つ先の信号で${roadName}へ右折します。早めに一番右の車線へ寄っておきましょう。`
+        voice: `${destName}方面へ、${roadName}を右折します。早めに一番右の車線へ寄っておきましょう。`
       });
     } else if (mod.includes("left")) {
       const isUrban = distM < 600;
       steps.push({
         icon: isUrban ? "⚠️" : "↰",
+        turnAction: `${roadName}へ左折`,
+        laneAction: isUrban ? "路駐に注意しつつ左折準備" : "左車線へ移動して左折準備",
         signals: isUrban ? 2 : 1,
-        signalText: isUrban ? `信号 2つ先で左折 (${roadName}・路駐警戒)` : `次の信号を左折 (${roadName})`,
+        signalText: isUrban ? `この先で左折 (${roadName}・路駐警戒)` : `この先で左折 (${roadName})`,
         dist: `約 ${Math.max(100, distM)}m先`,
         headline: isUrban ? "路駐注意！真ん中キープ後、直前で左へ" : "左車線へ寄って左折準備",
         cardClass: isUrban ? "highlight-amber" : "highlight-green",
@@ -725,8 +986,8 @@ function buildRiderProactiveSteps(osrmSteps, destName, totalDistMeters) {
           ? [{ text: "⚠️ 路駐", state: "parked-warn" }, { text: "↑ キープ", state: "recommended" }, { text: "↑", state: "" }]
           : [{ text: "↰ 左折", state: "recommended" }, { text: "↑", state: "" }, { text: "↑", state: "" }],
         voice: isUrban
-          ? `この先、${roadName}へ左折しますが、左車線に路上駐車がある可能性があります。直前の信号まで真ん中を走りましょう。`
-          : `次の信号を${roadName}へ左折します。左後方を確認して左車線へ移動してください。`
+          ? `この先、${roadName}へ左折しますが、左車線に路上駐車がある可能性があります。直前まで真ん中を走りましょう。`
+          : `この先、${roadName}へ左折します。左後方を確認して左車線へ移動してください。`
       });
     }
   });
@@ -734,6 +995,8 @@ function buildRiderProactiveSteps(osrmSteps, destName, totalDistMeters) {
   if (steps.length === 0) {
     steps.push({
       icon: "↑",
+      turnAction: "道なり直進",
+      laneAction: "走行車線をキープ",
       signals: 0,
       signalText: `${destName}へ案内開始`,
       dist: `総距離 ${totalKm}km`,
@@ -741,7 +1004,7 @@ function buildRiderProactiveSteps(osrmSteps, destName, totalDistMeters) {
       cardClass: "highlight-cyan",
       location: null,
       lanes: [{ text: "↑", state: "" }, { text: "↑ 直進", state: "recommended" }, { text: "↑", state: "" }],
-      voice: `${destName}まで総距離${totalKm}キロのルートを設定しました。現在の体感温度は${calcRiderWindChill(realTempC, currentSpeedKmh, realWindMs)}度です。安全運転で出発しましょう。`
+      voice: `${destName}まで総距離${totalKm}キロのルートを設定しました。安全運転で出発しましょう。`
     });
   }
   return steps;
@@ -775,16 +1038,92 @@ function applyGeneratedStep(idx, speak = true) {
 }
 
 // ==========================================
-// 8. 周辺スポット検索 (Overpass API)
+// 10. 4段階シビア車線誘導（1000m→500m→200m→100m）＆ 35m自動リルート
 // ==========================================
-async function searchNearbyPOI(type) {
+function evaluateLiveNavigation(lat, lng, speedKmh) {
+  if (!isRouteActive || generatedSteps.length === 0) return;
+
+  // 1) 目的地までの残距離とETAのリアルタイム更新
+  if (activeDestCoord) {
+    const distToDestM = haversineKm(lat, lng, activeDestCoord.lat, activeDestCoord.lng) * 1000;
+    const estSpeedMs = Math.max(8.3, (speedKmh || 35) / 3.6);
+    updateEtaDisplay(distToDestM, distToDestM / estSpeedMs);
+  }
+
+  // 2) ユーザー設定値に基づく4段階音声＋車線誘導
+  const curStep = generatedSteps[currentStepIdx];
+  if (curStep && curStep.location) {
+    const stepLng = curStep.location[0];
+    const stepLat = curStep.location[1];
+    const distM = Math.round(haversineKm(lat, lng, stepLat, stepLng) * 1000);
+
+    document.getElementById("distTag").textContent = distM >= 1000
+      ? `あと ${(distM / 1000).toFixed(1)}km`
+      : `あと ${distM}m`;
+
+    const s1 = navConfig.stage1Dist; // 例: 1000m
+    const s2 = navConfig.stage2Dist; // 例: 500m
+    const s3 = navConfig.stage3Dist; // 例: 200m
+    const s4 = navConfig.stage4Dist; // 例: 100m
+
+    const action = curStep.turnAction || curStep.headline;
+    const laneMsg = curStep.laneAction || curStep.headline;
+
+    if (distM <= s1 && distM > s2 && !curStep._announcedStage1) {
+      curStep._announcedStage1 = true;
+      const msg = `およそ${s1 >= 1000 ? "1キロ" : s1 + "メートル"}先、${action}です。今のうちに${laneMsg}。`;
+      document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
+      speakJapanese(msg);
+    } else if (distM <= s2 && distM > s3 && !curStep._announcedStage2) {
+      curStep._announcedStage2 = true;
+      const msg = `あと${s2}メートルで${action}です。${laneMsg}。`;
+      document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
+      speakJapanese(msg);
+    } else if (distM <= s3 && distM > s4 && !curStep._announcedStage3) {
+      curStep._announcedStage3 = true;
+      const msg = `あと${s3}メートル、${action}の準備をしてください。`;
+      document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
+      speakJapanese(msg);
+    } else if (distM <= s4 && distM > 28 && !curStep._announcedStage4) {
+      curStep._announcedStage4 = true;
+      const msg = `まもなく${s4}メートル先、${action}です。`;
+      document.getElementById("voiceSubtitle").textContent = `「${msg}」`;
+      speakJapanese(msg);
+    } else if (distM <= 28 && currentStepIdx < generatedSteps.length - 1) {
+      // 交差点を通過したら自動で次のステップへ送り、次の交差点が近ければ即座に予告
+      currentStepIdx++;
+      applyGeneratedStep(currentStepIdx, true);
+    }
+  }
+
+  // 3) シビアなルート逸脱チェック（デフォルト35m、ユーザー設定値で判定）
+  if (routeCoordinates.length > 2 && Date.now() - lastRerouteTime > 10000) {
+    let minDistM = Infinity;
+    for (let i = 0; i < routeCoordinates.length; i += 2) {
+      const d = haversineKm(lat, lng, routeCoordinates[i][1], routeCoordinates[i][0]) * 1000;
+      if (d < minDistM) minDistM = d;
+    }
+    if (minDistM > navConfig.rerouteDist) {
+      lastRerouteTime = Date.now();
+      const msg = `ルートから${Math.round(minDistM)}メートル外れました。現在地から再計算します。`;
+      document.getElementById("voiceSubtitle").textContent = `🔄 ${msg}`;
+      speakJapanese(msg);
+      searchAndRoute(true);
+    }
+  }
+}
+
+// ==========================================
+// 11. 周辺スポット検索＆経由地組み込み (Overpass API)
+// ==========================================
+async function searchNearbyPOI(type, setAsWaypoint = false) {
   setNorenOpen(false);
   const labels = { fuel: "ガソリンスタンド", convenience: "コンビニ", toilets: "トイレ・休憩所" };
   const icons = { fuel: "⛽", convenience: "🏪", toilets: "🚻" };
   const tagMap = {
-    fuel: `node["amenity"="fuel"](around:3000,${currentLat},${currentLng});`,
-    convenience: `node["shop"="convenience"](around:2500,${currentLat},${currentLng});`,
-    toilets: `node["amenity"="toilets"](around:3000,${currentLat},${currentLng});`
+    fuel: `node["amenity"="fuel"](around:3500,${currentLat},${currentLng});`,
+    convenience: `node["shop"="convenience"](around:3000,${currentLat},${currentLng});`,
+    toilets: `node["amenity"="toilets"](around:3500,${currentLat},${currentLng});`
   };
 
   speakJapanese(`現在地周辺の${labels[type]}を検索しています。`);
@@ -805,6 +1144,10 @@ async function searchNearbyPOI(type) {
       return;
     }
 
+    data.elements.sort((a, b) =>
+      haversineKm(currentLat, currentLng, a.lat, a.lon) - haversineKm(currentLat, currentLng, b.lat, b.lon)
+    );
+
     data.elements.forEach(el => {
       const name = (el.tags && el.tags.name) ? el.tags.name : labels[type];
       const m = new maplibregl.Marker({ color: "#ffab00" })
@@ -814,23 +1157,161 @@ async function searchNearbyPOI(type) {
       poiMarkers.push(m);
     });
 
+    const nearest = data.elements[0];
+    const nearestName = (nearest.tags && nearest.tags.name) ? nearest.tags.name : labels[type];
+
+    if (setAsWaypoint && isRouteActive && activeDestCoord) {
+      activeWaypoint = { name: nearestName, lat: nearest.lat, lng: nearest.lon };
+      speakJapanese(`最寄りの${nearestName}を経由地に追加してルートを再計算します。`);
+      searchAndRoute(true);
+      return;
+    }
+
     autoFollow = false;
     document.getElementById("recenterBtn").classList.add("active");
-    map.easeTo({ center: [data.elements[0].lon, data.elements[0].lat], zoom: 15 });
-    speakJapanese(`近くに${data.elements.length}件の${labels[type]}が見つかりました。地図上にピンを表示しています。`);
+    map.easeTo({ center: [nearest.lon, nearest.lat], zoom: 15 });
+    speakJapanese(`近くに${data.elements.length}件の${labels[type]}が見つかりました。一番近いのは${nearestName}です。`);
   } catch (e) {
     speakJapanese("スポット検索に失敗しました。通信状況を確認してください。");
   }
 }
 
 // ==========================================
-// 9. GPS・ジャイロ・画面スリープ防止
+// 12. マイガレージ（案内設定・お気に入り・履歴・称号）
+// ==========================================
+function openGarageModal(tab = "settings") {
+  switchGarageTab(tab);
+  syncSettingsSlidersUI();
+  renderFavorites();
+  renderHistory();
+  renderBadges();
+  updateLiveStatsUI();
+  document.getElementById("garageModal").classList.add("open");
+}
+
+function switchGarageTab(tab) {
+  ["settings", "fav", "log", "badge"].forEach(t => {
+    const cap = t.charAt(0).toUpperCase() + t.slice(1);
+    document.getElementById(`tabBtn${cap}`).classList.toggle("active", t === tab);
+    document.getElementById(`pane${cap}`).classList.toggle("active", t === tab);
+  });
+}
+
+function renderFavorites() {
+  const box = document.getElementById("favListContainer");
+  if (favoriteSpots.length === 0) {
+    box.innerHTML = `<div style="color:#94a3b8;font-size:12px;">登録スポットはまだありません</div>`;
+    return;
+  }
+  box.innerHTML = favoriteSpots.map((name, idx) => `
+    <div class="fav-item">
+      <div class="fav-name">📍 ${name}</div>
+      <div class="fav-actions">
+        <button class="mini-go-btn" onclick="goToFavorite(${idx})">出発</button>
+        <button class="mini-del-btn" onclick="deleteFavorite(${idx})">削除</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function addFavoriteSpot() {
+  const input = document.getElementById("newFavInput");
+  const val = input.value.trim();
+  if (!val) return;
+  favoriteSpots.unshift(val);
+  localStorage.setItem("apex_favs", JSON.stringify(favoriteSpots));
+  input.value = "";
+  renderFavorites();
+}
+
+function deleteFavorite(idx) {
+  favoriteSpots.splice(idx, 1);
+  localStorage.setItem("apex_favs", JSON.stringify(favoriteSpots));
+  renderFavorites();
+}
+
+function goToFavorite(idx) {
+  const spot = favoriteSpots[idx];
+  closeModals();
+  document.getElementById("destInput").value = spot;
+  searchAndRoute();
+}
+
+function updateLiveStatsUI() {
+  const elapsedMin = Math.floor((Date.now() - rideStartTime) / 60000);
+  const hh = String(Math.floor(elapsedMin / 60)).padStart(2, "0");
+  const mm = String(elapsedMin % 60).padStart(2, "0");
+  document.getElementById("statDist").textContent = `${totalDistanceKm.toFixed(1)} km`;
+  document.getElementById("statTime").textContent = `${hh}:${mm}`;
+  document.getElementById("statMaxSpeed").textContent = `${maxSpeedKmh} km/h`;
+  document.getElementById("statMaxLean").textContent = `L${maxLeanLeft}° / R${maxLeanRight}°`;
+}
+
+function saveCurrentRideHistory() {
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  rideHistory.unshift({
+    date: dateStr,
+    dest: activeDestName || "フリーツーリング",
+    dist: totalDistanceKm.toFixed(1),
+    maxSpeed: maxSpeedKmh,
+    maxLean: `L${maxLeanLeft}°/R${maxLeanRight}°`
+  });
+  localStorage.setItem("apex_history", JSON.stringify(rideHistory.slice(0, 30)));
+  renderHistory();
+  speakJapanese("今回の走行ログをマイガレージに保存しました。");
+}
+
+function renderHistory() {
+  const box = document.getElementById("historyListContainer");
+  if (rideHistory.length === 0) {
+    box.innerHTML = `<div style="color:#94a3b8;font-size:12px;">保存された履歴はまだありません</div>`;
+    return;
+  }
+  box.innerHTML = rideHistory.map(h => `
+    <div class="hist-item">
+      <div class="hist-date">${h.date} ・ ${h.dest}</div>
+      <div class="hist-meta">距離: ${h.dist}km / 最高速: ${h.maxSpeed}km/h / 最大バンク: ${h.maxLean}</div>
+    </div>
+  `).join("");
+}
+
+function renderBadges() {
+  const box = document.getElementById("badgeGridContainer");
+  box.innerHTML = RIDER_BADGES.map(b => {
+    const isUnlocked = Boolean(unlockedBadges[b.id]);
+    return `
+      <div class="badge-card ${isUnlocked ? "unlocked" : ""}">
+        <div class="badge-icon">${b.icon}</div>
+        <div class="badge-title">${b.title}</div>
+        <div class="badge-desc">${b.desc}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function resetTripLog() {
+  totalDistanceKm = 0;
+  maxSpeedKmh = 0;
+  maxLeanLeft = 0;
+  maxLeanRight = 0;
+  rideStartTime = Date.now();
+  trackCoords = [[currentLng, currentLat]];
+  if (map.getSource("track-source")) {
+    map.getSource("track-source").setData({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: trackCoords }
+    });
+  }
+  updateLiveStatsUI();
+}
+
+// ==========================================
+// 13. GPS・ジャイロ・画面スリープ防止
 // ==========================================
 async function requestWakeLock() {
   try {
-    if ("wakeLock" in navigator) {
-      wakeLock = await navigator.wakeLock.request("screen");
-    }
+    if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen");
   } catch (e) {}
 }
 
@@ -853,6 +1334,7 @@ function startOrientationListener() {
 
     if (lean < -2 && absLean > maxLeanLeft) maxLeanLeft = absLean;
     if (lean > 2 && absLean > maxLeanRight) maxLeanRight = absLean;
+    if (absLean >= 25) unlockBadge("corner_25");
 
     document.getElementById("leanVal").textContent = `${dir}${absLean}°`;
     document.getElementById("leanMax").textContent = `MAX L${maxLeanLeft}° / R${maxLeanRight}°`;
@@ -871,7 +1353,7 @@ function toggleGPS() {
     isGpsActive = false;
     document.getElementById("gpsToggleBtn").classList.remove("gps-on");
     document.getElementById("gpsBtnLabel").textContent = "📡 GPS開始";
-    document.getElementById("gpsBtnSub").textContent = "気象・追従連動";
+    document.getElementById("gpsBtnSub").textContent = "自動案内＆リルート";
     document.getElementById("gpsDot").classList.remove("active");
     document.getElementById("gpsStatusText").textContent = "GPS停止中";
     return;
@@ -884,12 +1366,14 @@ function toggleGPS() {
   watchId = navigator.geolocation.watchPosition(
     (pos) => {
       isGpsActive = true;
+      unlockBadge("first_gps");
       const { latitude, longitude, speed, heading, altitude } = pos.coords;
 
       if (prevLat !== null && prevLng !== null) {
         const dKm = haversineKm(prevLat, prevLng, latitude, longitude);
         if (dKm > 0.003 && dKm < 0.5) {
           totalDistanceKm += dKm;
+          if (totalDistanceKm >= 50) unlockBadge("dist_50");
           trackCoords.push([longitude, latitude]);
           if (map.getSource("track-source")) {
             map.getSource("track-source").setData({
@@ -945,14 +1429,16 @@ function toggleGPS() {
 
       document.getElementById("gpsToggleBtn").classList.add("gps-on");
       document.getElementById("gpsBtnLabel").textContent = "🛰️ GPS稼働中";
-      document.getElementById("gpsBtnSub").textContent = "タップで停止";
+      document.getElementById("gpsBtnSub").textContent = `逸脱${navConfig.rerouteDist}m監視中`;
       document.getElementById("gpsDot").classList.add("active");
       document.getElementById("gpsStatusText").textContent = "GPS測位OK";
+
+      evaluateLiveNavigation(currentLat, currentLng, kmh);
 
       fetchRealWeather(currentLat, currentLng);
       updateWeatherUI();
     },
-    (err) => {
+    () => {
       document.getElementById("gpsStatusText").textContent = "GPS未許可";
     },
     { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
@@ -960,7 +1446,7 @@ function toggleGPS() {
 }
 
 // ==========================================
-// 10. ユーティリティ・デモ・モーダル制御
+// 14. ユーティリティ・デモ・モーダル制御
 // ==========================================
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
@@ -983,27 +1469,33 @@ function calcBearing(lat1, lon1, lat2, lon2) {
 const demoScenarios = [
   {
     icon: "↱",
-    signals: 2, signalText: "【デモ】信号 2つ先で右折", dist: "あと 480m",
+    turnAction: "幹線道路へ右折",
+    laneAction: "一番右の車線へ移動",
+    signals: 2, signalText: "【デモ】1000m先から右折誘導", dist: "あと 1000m",
     headline: "今のうちに一番右の車線へ移動", cardClass: "highlight-green",
     location: null,
     lanes: [{ text: "↑", state: "" }, { text: "↑", state: "" }, { text: "↱ 右折", state: "recommended" }],
-    voice: "2つ先の信号を右折します。交通量が多いので、今のうちに一番右の車線へ寄っておきましょう。"
+    voice: "およそ1キロ先、右折です。今のうちに一番右の車線へ移動しておきましょう。"
   },
   {
     icon: "⚠️",
-    signals: 2, signalText: "【デモ】信号 2つ先で左折 (路駐警戒)", dist: "あと 350m",
+    turnAction: "次の交差点を左折",
+    laneAction: "路駐を避けて真ん中車線をキープ",
+    signals: 2, signalText: "【デモ】500m先で左折 (路駐警戒)", dist: "あと 500m",
     headline: "路駐多発！真ん中車線をキープ", cardClass: "highlight-amber",
     location: null,
     lanes: [{ text: "⚠️ 路駐", state: "parked-warn" }, { text: "↑ キープ", state: "recommended" }, { text: "↑", state: "" }],
-    voice: "2つ先の信号を左折しますが、左車線は路上駐車が多いエリアです。直前の信号まで真ん中の車線を走りましょう。"
+    voice: "あと500メートルで左折ですが、左車線に路上駐車があります。直前まで真ん中の車線をキープしてください。"
   },
   {
-    icon: "❄️",
-    signals: 0, signalText: "【デモ】気象・防寒アラート", dist: "峠エリア予測",
-    headline: "山頂は体感氷点下！手前で防寒準備", cardClass: "highlight-cyan",
+    icon: "🌀",
+    turnAction: "急カーブ・ヘアピン進入",
+    laneAction: "直線区間で十分に減速",
+    signals: 0, signalText: "【デモ】200m先 急カーブ警戒", dist: "あと 200m",
+    headline: "急カーブ注意！直線区間で十分に減速", cardClass: "highlight-red",
     location: null,
-    lanes: [{ text: "↑", state: "" }, { text: "🏪 2km先", state: "recommended" }, { text: "↑", state: "" }],
-    voice: "この先の峠道は走行風による体感温度が氷点下まで下がる予報です。インナーを着込むなら手前のコンビニが最後のチャンスです。"
+    lanes: [{ text: "⚠️ 減速", state: "curve-warn" }, { text: "🌀 急カーブ", state: "curve-warn" }, { text: "⚠️ 減速", state: "curve-warn" }],
+    voice: "あと200メートル、急カーブがあります。進入前の直線でしっかりスピードを落としてください。"
   }
 ];
 
@@ -1020,11 +1512,9 @@ function selectScenario(idx) {
   applyGeneratedStep(idx, true);
 }
 
-function triggerNextStep() {
+function handleMainLeftBtn() {
   if (!isRouteActive || generatedSteps.length === 0) {
-    const input = document.getElementById("destInput");
-    input.focus();
-    speakJapanese("目的地を入力して検索を押してください。");
+    startVoiceCommand();
     return;
   }
   currentStepIdx = (currentStepIdx + 1) % generatedSteps.length;
@@ -1048,33 +1538,6 @@ function cycleBikeClass() {
   }
 }
 
-function openLogModal() {
-  const elapsedMin = Math.floor((Date.now() - rideStartTime) / 60000);
-  const hh = String(Math.floor(elapsedMin / 60)).padStart(2, "0");
-  const mm = String(elapsedMin % 60).padStart(2, "0");
-  document.getElementById("statDist").textContent = `${totalDistanceKm.toFixed(1)} km`;
-  document.getElementById("statTime").textContent = `${hh}:${mm}`;
-  document.getElementById("statMaxSpeed").textContent = `${maxSpeedKmh} km/h`;
-  document.getElementById("statMaxLean").textContent = `L${maxLeanLeft}° / R${maxLeanRight}°`;
-  document.getElementById("logModal").classList.add("open");
-}
-
-function resetTripLog() {
-  totalDistanceKm = 0;
-  maxSpeedKmh = 0;
-  maxLeanLeft = 0;
-  maxLeanRight = 0;
-  rideStartTime = Date.now();
-  trackCoords = [[currentLng, currentLat]];
-  if (map.getSource("track-source")) {
-    map.getSource("track-source").setData({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: trackCoords }
-    });
-  }
-  openLogModal();
-}
-
 function openSosModal() {
   document.getElementById("sosCoordDesc").textContent =
     `現在地座標: ${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}\nGoogleマップのピンリンクをコピーして救援依頼を送れます。`;
@@ -1092,7 +1555,7 @@ async function shareEmergencyLocation() {
 }
 
 function closeModals() {
-  document.getElementById("logModal").classList.remove("open");
+  document.getElementById("garageModal").classList.remove("open");
   document.getElementById("sosModal").classList.remove("open");
 }
 
@@ -1106,16 +1569,15 @@ function speakJapanese(text) {
 }
 
 // ==========================================
-// 11. 初期起動処理（フリー走行待機モードで開始）
+// 15. 初期起動処理
 // ==========================================
 resetToStandbyMode();
 syncThemeButtonsUI();
+syncSettingsSlidersUI();
 fetchRealWeather(currentLat, currentLng, "横浜・みなとみらい付近");
 
 window.addEventListener("load", () => {
   let done = false;
   try { done = localStorage.getItem("apex_navi_tut_done") === "1"; } catch (e) {}
-  if (!done) {
-    openTutorial(0);
-  }
+  if (!done) openTutorial(0);
 });

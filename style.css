@@ -104,7 +104,7 @@ html, body {
   animation: pulse 1.4s infinite;
 }
 
-/* 2. 目的地検索＆大通り優先バー */
+/* 2. 目的地検索＆音声指令・大通り優先バー */
 .search-bar-wrap {
   display: flex;
   gap: 5px;
@@ -130,14 +130,32 @@ html, body {
 .dest-input::placeholder { color: #64748b; }
 .dest-input:focus { border-color: var(--accent-cyan); }
 
+.icon-sq-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--accent-cyan);
+  background: rgba(0, 176, 255, 0.14);
+  color: #ffffff;
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.icon-sq-btn.listening {
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+  animation: pulse 0.9s infinite;
+}
+
 .major-road-toggle {
   height: 38px;
-  padding: 0 9px;
+  padding: 0 8px;
   border-radius: 10px;
   border: 1px solid #334155;
   background: #131c2e;
   color: #94a3b8;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 800;
   cursor: pointer;
   flex-shrink: 0;
@@ -152,7 +170,7 @@ html, body {
 
 .route-go-btn {
   height: 38px;
-  padding: 0 12px;
+  padding: 0 11px;
   border-radius: 10px;
   border: none;
   background: var(--accent-cyan);
@@ -168,7 +186,7 @@ html, body {
   color: #f8fafc;
 }
 
-/* 3. 先読みアクションカード ＋ 暖簾プルダウンの親コンテナ */
+/* 3. 先読みアクションカード ＋ 暖簾プルダウン */
 .guidance-dropdown-wrap {
   position: relative;
   margin: 6px 10px;
@@ -197,6 +215,7 @@ html, body {
 .guidance-card.highlight-green { border-color: var(--accent-green); }
 .guidance-card.highlight-amber { border-color: var(--accent-amber); }
 .guidance-card.highlight-cyan  { border-color: var(--accent-cyan); }
+.guidance-card.highlight-red   { border-color: var(--accent-red); }
 
 .guidance-top {
   display: flex;
@@ -218,9 +237,8 @@ html, body {
   text-overflow: ellipsis;
 }
 
-.guidance-card.standby .signal-counter {
-  color: var(--accent-cyan);
-}
+.guidance-card.standby .signal-counter { color: var(--accent-cyan); }
+.guidance-card.highlight-red .signal-counter { color: #ff8a65; }
 
 .signal-dots {
   display: flex;
@@ -229,8 +247,8 @@ html, body {
 }
 
 .dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 3px;
   background: #28354f;
 }
@@ -242,12 +260,22 @@ html, body {
 .guidance-right-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-shrink: 0;
 }
 
+.eta-pill {
+  background: rgba(0, 176, 255, 0.18);
+  border: 1px solid rgba(0, 176, 255, 0.45);
+  color: #7dd3fc;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
 .dist-tag {
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 800;
   color: #cbd5e1;
 }
@@ -258,12 +286,12 @@ html, body {
   color: #ffffff;
   font-size: 10px;
   font-weight: 800;
-  padding: 2px 7px;
+  padding: 2px 6px;
   border-radius: 6px;
 }
 
 .action-headline {
-  font-size: 16px;
+  font-size: 15.5px;
   font-weight: 900;
   line-height: 1.25;
   margin-bottom: 7px;
@@ -285,7 +313,7 @@ html, body {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 900;
   color: #64748b;
   background: #141c2f;
@@ -293,7 +321,7 @@ html, body {
 }
 
 .lane-box.standby-msg {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   color: #94a3b8;
   background: transparent;
@@ -303,6 +331,12 @@ html, body {
   background: rgba(0, 230, 118, 0.22);
   border: 2px solid var(--accent-green);
   color: var(--accent-green);
+}
+
+.lane-box.curve-warn {
+  background: rgba(255, 61, 0, 0.24);
+  border: 2px solid var(--accent-red);
+  color: #ff8a65;
 }
 
 .lane-box.parked-warn {
@@ -374,15 +408,9 @@ html, body {
 }
 
 .step-row:active { transform: scale(0.985); }
-
-.step-row.current {
-  border-color: var(--accent-green);
-  background: rgba(0, 230, 118, 0.14);
-}
-
-.step-row.warn-row {
-  border-left: 4px solid var(--accent-amber);
-}
+.step-row.current { border-color: var(--accent-green); background: rgba(0, 230, 118, 0.14); }
+.step-row.warn-row { border-left: 4px solid var(--accent-amber); }
+.step-row.curve-row { border-left: 4px solid var(--accent-red); }
 
 .step-turn-badge {
   width: 36px;
@@ -399,57 +427,16 @@ html, body {
   flex-shrink: 0;
 }
 
-.step-row.current .step-turn-badge {
-  border-color: var(--accent-green);
-  color: var(--accent-green);
-}
-
-.step-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.step-top-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 2px;
-}
-
-.step-num-tag {
-  font-size: 10px;
-  font-weight: 800;
-  color: var(--accent-amber);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+.step-row.current .step-turn-badge { border-color: var(--accent-green); color: var(--accent-green); }
+.step-body { flex: 1; min-width: 0; }
+.step-top-line { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 2px; }
+.step-num-tag { font-size: 10px; font-weight: 800; color: var(--accent-amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .step-row.current .step-num-tag { color: var(--accent-green); }
+.step-dist-tag { font-size: 10.5px; font-weight: 800; color: #94a3b8; flex-shrink: 0; }
+.step-main-text { font-size: 13px; font-weight: 900; color: #f8fafc; line-height: 1.25; }
+.step-sub-advice { font-size: 11px; color: #cbd5e1; margin-top: 2px; line-height: 1.3; }
 
-.step-dist-tag {
-  font-size: 10.5px;
-  font-weight: 800;
-  color: #94a3b8;
-  flex-shrink: 0;
-}
-
-.step-main-text {
-  font-size: 13px;
-  font-weight: 900;
-  color: #f8fafc;
-  line-height: 1.25;
-}
-
-.step-sub-advice {
-  font-size: 11px;
-  color: #cbd5e1;
-  margin-top: 2px;
-  line-height: 1.3;
-}
-
-/* 4. Googleマップ風ベクター地図エリア（昼・夜間ダーク両対応） */
+/* 4. ベクター地図エリア */
 .map-viewport {
   position: relative;
   flex: 1;
@@ -466,13 +453,8 @@ html, body {
   background: #0b0f19;
 }
 
-#vectorMap {
-  width: 100%;
-  height: 100%;
-  background: #f1f3f4;
-}
+#vectorMap { width: 100%; height: 100%; background: #f1f3f4; }
 
-/* 地図上の白いポップアップ吹き出しの文字色を濃く修正 */
 .maplibregl-popup-content {
   color: #0f172a !important;
   font-weight: 800;
@@ -481,17 +463,8 @@ html, body {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35) !important;
 }
 
-.maplibregl-popup-close-button {
-  color: #475569 !important;
-  font-size: 16px;
-  padding: 2px 6px;
-}
-
-.maplibregl-ctrl-bottom-left,
-.maplibregl-ctrl-bottom-right,
-.maplibregl-ctrl-attrib {
-  display: none !important;
-}
+.maplibregl-popup-close-button { color: #475569 !important; font-size: 16px; padding: 2px 6px; }
+.maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-attrib { display: none !important; }
 
 /* 自車バイクマーカー */
 .rider-pin {
@@ -543,12 +516,9 @@ html, body {
   box-shadow: 0 4px 12px rgba(0,0,0,0.35);
 }
 
-.intercom-toast.active-nav {
-  border: 1.5px solid var(--accent-cyan);
-  color: #ffffff;
-}
+.intercom-toast.active-nav { border: 1.5px solid var(--accent-cyan); color: #ffffff; }
 
-/* マップ右上: 誤タップ防止・収納式コントロール */
+/* マップ右上: 収納式コントロール */
 .map-controls {
   position: absolute;
   top: 56px;
@@ -568,10 +538,7 @@ html, body {
   color: #f8fafc;
 }
 
-.menu-toggle-btn.open {
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-}
+.menu-toggle-btn.open { border-color: var(--accent-cyan); color: var(--accent-cyan); }
 
 .map-menu-drawer {
   display: none;
@@ -583,13 +550,10 @@ html, body {
   border-radius: 12px;
   padding: 8px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
-  min-width: 154px;
+  min-width: 168px;
 }
 
-.map-menu-drawer.open {
-  display: flex;
-  animation: fadeInDown 0.18s ease-out;
-}
+.map-menu-drawer.open { display: flex; animation: fadeInDown 0.18s ease-out; }
 
 .map-mini-btn {
   background: rgba(20, 29, 48, 0.95);
@@ -601,42 +565,18 @@ html, body {
   font-weight: 800;
   cursor: pointer;
   text-align: left;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
 
-.map-mini-btn.active {
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-}
+.map-mini-btn.active { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+.map-mini-btn.setting-btn { border-color: var(--accent-cyan); color: #7dd3fc; background: rgba(0, 176, 255, 0.14); }
+.map-mini-btn.theme-btn { border-color: var(--accent-purple); color: #e9d5ff; }
+.map-mini-btn.garage-btn { border-color: var(--accent-amber); color: #fde68a; }
+.map-mini-btn.tut-btn { border-color: var(--accent-green); color: var(--accent-green); }
+.map-mini-btn.style-btn { border-color: #60a5fa; color: #bfdbfe; }
+.map-mini-btn.sos { border-color: var(--accent-red); color: #ff8a65; }
+.map-mini-btn.sos.holding { background: var(--accent-red); color: #ffffff; transform: scale(0.97); }
 
-.map-mini-btn.theme-btn {
-  border-color: var(--accent-purple);
-  color: #e9d5ff;
-}
-
-.map-mini-btn.tut-btn {
-  border-color: var(--accent-green);
-  color: var(--accent-green);
-}
-
-.map-mini-btn.style-btn {
-  border-color: var(--accent-amber);
-  color: #fde68a;
-}
-
-.map-mini-btn.sos {
-  border-color: var(--accent-red);
-  color: #ff8a65;
-  transition: transform 0.15s ease, background-color 0.2s ease;
-}
-
-.map-mini-btn.sos.holding {
-  background: var(--accent-red);
-  color: #ffffff;
-  transform: scale(0.97);
-}
-
-/* 左上バンク角（リーンアングル）HUD */
+/* 左上バンク角HUD */
 .lean-hud {
   position: absolute;
   top: 56px;
@@ -648,26 +588,11 @@ html, body {
   z-index: 500;
   text-align: center;
   min-width: 74px;
-  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
 }
 
-.lean-title {
-  font-size: 9px;
-  color: var(--text-muted);
-  font-weight: 800;
-}
-
-.lean-val {
-  font-size: 18px;
-  font-weight: 900;
-  color: var(--accent-purple);
-  font-variant-numeric: tabular-nums;
-}
-
-.lean-max {
-  font-size: 9px;
-  color: #cbd5e1;
-}
+.lean-title { font-size: 9px; color: var(--text-muted); font-weight: 800; }
+.lean-val { font-size: 18px; font-weight: 900; color: var(--accent-purple); font-variant-numeric: tabular-nums; }
+.lean-max { font-size: 9px; color: #cbd5e1; }
 
 /* 左下: GPSスピードメーターHUD */
 .gps-speed-hud {
@@ -681,27 +606,11 @@ html, body {
   min-width: 78px;
   text-align: center;
   z-index: 500;
-  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
 }
 
-.gps-speed-hud.live {
-  border-color: var(--accent-green);
-  box-shadow: 0 0 12px rgba(0, 230, 118, 0.35);
-}
-
-.speed-val {
-  font-size: 24px;
-  font-weight: 900;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.speed-unit {
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
+.gps-speed-hud.live { border-color: var(--accent-green); box-shadow: 0 0 12px rgba(0, 230, 118, 0.35); }
+.speed-val { font-size: 24px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+.speed-unit { font-size: 9px; font-weight: 700; color: var(--text-muted); margin-top: 2px; }
 
 /* 右下: 走行ログ＆GPSステータスHUD */
 .gps-coord-hud {
@@ -718,21 +627,11 @@ html, body {
   text-align: right;
   z-index: 500;
   font-variant-numeric: tabular-nums;
-  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+  cursor: pointer;
 }
 
-.gps-status-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #64748b;
-  margin-right: 4px;
-}
-.gps-status-dot.active {
-  background: var(--accent-green);
-  box-shadow: 0 0 6px var(--accent-green);
-}
+.gps-status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #64748b; margin-right: 4px; }
+.gps-status-dot.active { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
 
 /* クイックツールバー */
 .quick-strip {
@@ -756,17 +655,10 @@ html, body {
   font-weight: 800;
   cursor: pointer;
 }
-.chip-btn.active {
-  background: rgba(0, 176, 255, 0.22);
-  border-color: var(--accent-cyan);
-  color: #ffffff;
-}
-
-.chip-btn.night-active {
-  background: rgba(179, 136, 255, 0.22);
-  border-color: var(--accent-purple);
-  color: #f3e8ff;
-}
+.chip-btn.active { background: rgba(0, 176, 255, 0.22); border-color: var(--accent-cyan); color: #ffffff; }
+.chip-btn.night-active { background: rgba(179, 136, 255, 0.22); border-color: var(--accent-purple); color: #f3e8ff; }
+.chip-btn.garage-chip { border-color: rgba(255, 171, 0, 0.5); color: #fde68a; }
+.chip-btn.setting-chip { border-color: rgba(0, 176, 255, 0.55); color: #7dd3fc; }
 
 /* 5. グローブ対応・大型コントロールフッター */
 .glove-footer {
@@ -794,33 +686,173 @@ html, body {
 }
 
 .glove-btn:active { transform: scale(0.96); }
+.glove-btn.primary { background: linear-gradient(135deg, #00c853 0%, #009624 100%); border: none; color: #041308; font-size: 13px; }
+.glove-btn.standby-btn { background: #162038; border: 1px solid var(--accent-cyan); color: var(--accent-cyan); }
+.glove-btn.gps-on { background: rgba(0, 176, 255, 0.22); border-color: var(--accent-cyan); color: #ffffff; }
+.glove-btn span.sub { font-size: 9px; opacity: 0.85; font-weight: 600; }
 
-.glove-btn.primary {
-  background: linear-gradient(135deg, #00c853 0%, #009624 100%);
-  border: none;
-  color: #041308;
-  font-size: 13px;
+/* ====== マイガレージ・ナビ距離設定・履歴・称号モーダル ====== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(6px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  z-index: 1000;
+}
+.modal-backdrop.open { display: flex; }
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  background: #111827;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.75);
 }
 
-.glove-btn.standby-btn {
-  background: #162038;
-  border: 1px solid var(--accent-cyan);
-  color: var(--accent-cyan);
+.modal-tall { max-height: 84dvh; display: flex; flex-direction: column; }
+.modal-sos { border-color: var(--accent-red); }
+.sos-title { color: #ff8a65; }
+.sos-desc { font-size: 13px; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px; }
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 900;
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.glove-btn.gps-on {
+.modal-tabs.four-tabs {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr 0.8fr;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.tab-btn {
+  padding: 8px 3px;
+  border-radius: 9px;
+  border: 1px solid #263554;
+  background: #0d1322;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.tab-btn.active {
   background: rgba(0, 176, 255, 0.22);
   border-color: var(--accent-cyan);
   color: #ffffff;
 }
 
-.glove-btn span.sub {
-  font-size: 9px;
-  opacity: 0.85;
-  font-weight: 600;
+.tab-pane { display: none; flex-direction: column; overflow: hidden; }
+.tab-pane.active { display: flex; }
+
+.scroll-box {
+  max-height: 52dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
 }
 
-/* ====== ゲーム風インタラクティブ・チュートリアルUI ====== */
+/* 案内距離設定スライダーUI */
+.setting-group {
+  background: #182236;
+  border: 1px solid #263554;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.setting-group.warn-border {
+  border-color: rgba(255, 171, 0, 0.55);
+}
+
+.setting-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #e2e8f0;
+  margin-bottom: 6px;
+}
+
+.setting-val {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--accent-green);
+}
+
+.setting-val.warn-txt {
+  color: var(--accent-amber);
+}
+
+.nav-slider {
+  width: 100%;
+  accent-color: var(--accent-cyan);
+  height: 24px;
+  cursor: pointer;
+}
+
+.setting-hint {
+  font-size: 10.5px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.fav-add-row { display: flex; gap: 6px; margin-bottom: 10px; }
+
+.fav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #182236;
+  border: 1px solid #263554;
+  border-radius: 11px;
+  padding: 9px 11px;
+  gap: 8px;
+}
+
+.fav-name { font-size: 13px; font-weight: 800; color: #f8fafc; }
+.fav-actions { display: flex; gap: 5px; flex-shrink: 0; }
+
+.mini-go-btn { background: var(--accent-green); color: #041308; border: none; border-radius: 7px; padding: 5px 10px; font-size: 11px; font-weight: 900; cursor: pointer; }
+.mini-del-btn { background: #334155; color: #cbd5e1; border: none; border-radius: 7px; padding: 5px 8px; font-size: 11px; font-weight: 800; cursor: pointer; }
+
+.sub-sec-title { font-size: 11.5px; font-weight: 800; color: var(--accent-cyan); margin-bottom: 6px; }
+.hist-item { background: #182236; border-left: 3px solid var(--accent-cyan); border-radius: 9px; padding: 8px 10px; font-size: 11.5px; }
+.hist-date { font-weight: 800; color: #f8fafc; margin-bottom: 2px; }
+.hist-meta { color: #94a3b8; font-size: 11px; }
+
+.badge-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 52dvh; overflow-y: auto; }
+.badge-card { background: #182236; border: 1px solid #263554; border-radius: 12px; padding: 10px; text-align: center; opacity: 0.45; }
+.badge-card.unlocked { opacity: 1; border-color: var(--accent-amber); background: linear-gradient(180deg, rgba(255, 171, 0, 0.14) 0%, #182236 100%); }
+.badge-icon { font-size: 26px; margin-bottom: 4px; }
+.badge-title { font-size: 12px; font-weight: 900; color: #ffffff; }
+.badge-desc { font-size: 10px; color: #cbd5e1; margin-top: 2px; line-height: 1.3; }
+
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.stat-box { background: #182236; border-radius: 12px; padding: 9px; text-align: center; }
+.stat-box .num { font-size: 18px; font-weight: 900; color: var(--accent-cyan); }
+.stat-box .lbl { font-size: 10.5px; color: var(--text-muted); margin-top: 2px; }
+
+.modal-action-btn { width: 100%; height: 44px; border-radius: 12px; border: none; font-size: 13.5px; font-weight: 900; cursor: pointer; margin-top: 8px; }
+.btn-green { background: var(--accent-green); color: #041308; }
+.btn-cyan { background: var(--accent-cyan); color: #04121f; }
+.btn-red { background: var(--accent-red); color: #ffffff; }
+.btn-slate { background: #1e293b; color: #ffffff; }
+
+/* ====== チュートリアルUI ====== */
 .tutorial-overlay {
   position: fixed;
   inset: 0;
@@ -834,218 +866,25 @@ html, body {
 }
 .tutorial-overlay.open { display: flex; }
 
-.tut-dialog {
-  background: linear-gradient(180deg, #162038 0%, #0d1322 100%);
-  border: 2px solid var(--accent-cyan);
-  border-radius: 20px;
-  padding: 18px;
-  box-shadow: 0 16px 40px rgba(0, 176, 255, 0.25);
-  animation: slideUp 0.3s ease-out;
-}
-
-.tut-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.tut-badge {
-  background: var(--accent-cyan);
-  color: #04121f;
-  font-size: 11px;
-  font-weight: 900;
-  padding: 3px 10px;
-  border-radius: 999px;
-  letter-spacing: 0.04em;
-}
-
-.tut-skip {
-  background: transparent;
-  border: 1px solid #334155;
-  color: #94a3b8;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.tut-progress {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-
-.tut-bar {
-  flex: 1;
-  height: 5px;
-  border-radius: 3px;
-  background: #243252;
-}
+.tut-dialog { background: linear-gradient(180deg, #162038 0%, #0d1322 100%); border: 2px solid var(--accent-cyan); border-radius: 20px; padding: 18px; box-shadow: 0 16px 40px rgba(0, 176, 255, 0.25); }
+.tut-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.tut-badge { background: var(--accent-cyan); color: #04121f; font-size: 11px; font-weight: 900; padding: 3px 10px; border-radius: 999px; }
+.tut-skip { background: transparent; border: 1px solid #334155; color: #94a3b8; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px; cursor: pointer; }
+.tut-progress { display: flex; gap: 6px; margin-bottom: 14px; }
+.tut-bar { flex: 1; height: 5px; border-radius: 3px; background: #243252; }
 .tut-bar.done { background: var(--accent-green); }
 .tut-bar.current { background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); }
-
-.tut-character {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.tut-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: rgba(0, 230, 118, 0.18);
-  border: 1.5px solid var(--accent-green);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  flex-shrink: 0;
-}
-
-.tut-title {
-  font-size: 17px;
-  font-weight: 900;
-  color: #ffffff;
-}
-
-.tut-sub {
-  font-size: 11px;
-  color: var(--accent-green);
-  font-weight: 800;
-}
-
-.tut-desc {
-  font-size: 13px;
-  line-height: 1.55;
-  color: #e2e8f0;
-  background: rgba(8, 12, 20, 0.65);
-  border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 14px;
-  border: 1px solid #1e293b;
-}
-
-.tut-api-pill {
-  display: inline-block;
-  margin-top: 6px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: rgba(179, 136, 255, 0.16);
-  color: var(--accent-purple);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.tut-action-btn {
-  width: 100%;
-  height: 52px;
-  border-radius: 14px;
-  border: none;
-  background: linear-gradient(135deg, #00e676 0%, #00b0ff 100%);
-  color: #04121f;
-  font-size: 15px;
-  font-weight: 900;
-  cursor: pointer;
-  box-shadow: 0 6px 20px rgba(0, 230, 118, 0.35);
-}
-
-.tut-action-btn:active { transform: scale(0.97); }
-
-/* モーダル */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.78);
-  backdrop-filter: blur(6px);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  z-index: 1000;
-}
-.modal-backdrop.open { display: flex; }
-
-.modal-card {
-  width: 100%;
-  max-width: 400px;
-  background: #111827;
-  border: 1px solid var(--border-color);
-  border-radius: 18px;
-  padding: 18px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.7);
-}
-
-.modal-sos { border-color: var(--accent-red); }
-.sos-title { color: #ff8a65; }
-.sos-desc {
-  font-size: 13px;
-  color: #cbd5e1;
-  line-height: 1.5;
-  margin-bottom: 12px;
-}
-
-.modal-title {
-  font-size: 17px;
-  font-weight: 900;
-  margin-bottom: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.stat-box {
-  background: #182236;
-  border-radius: 12px;
-  padding: 10px;
-  text-align: center;
-}
-
-.stat-box .num {
-  font-size: 20px;
-  font-weight: 900;
-  color: var(--accent-cyan);
-}
-
-.stat-box .lbl {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-
-.modal-action-btn {
-  width: 100%;
-  height: 46px;
-  border-radius: 12px;
-  border: none;
-  font-size: 14px;
-  font-weight: 900;
-  cursor: pointer;
-  margin-top: 8px;
-}
-
-.btn-cyan { background: var(--accent-cyan); color: #04121f; }
-.btn-red { background: var(--accent-red); color: #ffffff; }
-.btn-slate { background: #1e293b; color: #ffffff; }
+.tut-character { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.tut-avatar { width: 44px; height: 44px; border-radius: 12px; background: rgba(0, 230, 118, 0.18); border: 1.5px solid var(--accent-green); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+.tut-title { font-size: 17px; font-weight: 900; color: #ffffff; }
+.tut-sub { font-size: 11px; color: var(--accent-green); font-weight: 800; }
+.tut-desc { font-size: 13px; line-height: 1.55; color: #e2e8f0; background: rgba(8, 12, 20, 0.65); border-radius: 12px; padding: 12px; margin-bottom: 14px; border: 1px solid #1e293b; }
+.tut-api-pill { display: inline-block; margin-top: 6px; padding: 3px 8px; border-radius: 6px; background: rgba(179, 136, 255, 0.16); color: var(--accent-purple); font-size: 11px; font-weight: 800; }
+.tut-action-btn { width: 100%; height: 52px; border-radius: 14px; border: none; background: linear-gradient(135deg, #00e676 0%, #00b0ff 100%); color: #04121f; font-size: 15px; font-weight: 900; cursor: pointer; }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
-}
-
-@keyframes slideUp {
-  from { transform: translateY(30px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
 }
 
 @keyframes fadeInDown {

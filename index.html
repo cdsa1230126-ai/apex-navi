@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#080c14" />
-  <title>APEX NAVI - Vector Rider OS</title>
+  <title>APEX NAVI - Complete Rider OS</title>
 
   <!-- MapLibre GL JS -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="" />
@@ -26,10 +26,11 @@
       </div>
     </header>
 
-    <!-- 2. 目的地検索＆大通り優先オプションバー -->
+    <!-- 2. 目的地検索＆大通り優先・音声検索バー -->
     <div class="search-bar-wrap">
-      <input type="text" class="dest-input" id="destInput" placeholder="目的地を入力 (例: 箱根大観山, 江ノ島, 宮ヶ瀬ダム)" />
-      <button class="major-road-toggle active" id="majorRoadBtn" onclick="toggleMajorRoadMode()" title="細い生活道路を避けて幹線道路を優先">🛣️ 大通り優先</button>
+      <input type="text" class="dest-input" id="destInput" placeholder="目的地 (例: 箱根大観山, 江ノ島)" />
+      <button class="icon-sq-btn" id="micSearchBtn" onclick="startVoiceCommand()" title="音声で目的地・経由地を指示">🎙️</button>
+      <button class="major-road-toggle active" id="majorRoadBtn" onclick="toggleMajorRoadMode()">🛣️ 大通り優先</button>
       <button class="route-go-btn" id="routeActionBtn" onclick="searchAndRoute()">検索</button>
     </div>
 
@@ -42,15 +43,16 @@
             <div class="signal-dots" id="signalDots"></div>
           </div>
           <div class="guidance-right-meta">
+            <span class="eta-pill" id="etaPill" style="display:none;">到着 --:--</span>
             <span class="dist-tag" id="distTag">STANDBY</span>
             <span class="list-hint-pill" id="listHintPill" style="display:none;">📋 一覧 ▾</span>
           </div>
         </div>
         <div class="action-headline" id="actionHeadline">
-          上の検索欄から目的地を入力して出発
+          上の検索欄か🎙️音声で目的地を入力して出発
         </div>
         <div class="lane-guide" id="laneGuide">
-          <div class="lane-box standby-msg">GPSと気象・バンク角のリアルタイム監視はそのまま利用できます</div>
+          <div class="lane-box standby-msg" id="standbySubMsg">1000m・500m・200m・100mの4段階車線案内 / 逸脱35m判定</div>
         </div>
       </section>
 
@@ -65,8 +67,8 @@
     <main class="map-viewport" id="mapViewport">
       <!-- インカム字幕オーバーレイ -->
       <div class="intercom-toast" id="intercomToast">
-        <span style="font-size:17px;flex-shrink:0;">🎧</span>
-        <span id="voiceSubtitle">目的地を検索するか、GPSを開始するとインカム音声案内が有効になります。</span>
+        <span style="font-size:17px;flex-shrink:0;" id="toastIcon">🎧</span>
+        <span id="voiceSubtitle">「近くのガソリンスタンドに寄る」など音声指令にも対応しています。</span>
       </div>
 
       <!-- 左上: バンク角（リーンアングル）HUD -->
@@ -80,10 +82,12 @@
       <div class="map-controls">
         <button class="map-mini-btn menu-toggle-btn" id="menuToggleBtn" onclick="toggleMapMenu()">⚙️ メニュー</button>
         <div class="map-menu-drawer" id="mapMenuDrawer">
+          <button class="map-mini-btn setting-btn" onclick="openGarageModal('settings'); toggleMapMenu(false)">🎛️ 案内距離・感度設定</button>
           <button class="map-mini-btn theme-btn" id="mapThemeBtn" onclick="toggleMapTheme()">☀️ 地図: 昼モード</button>
           <button class="map-mini-btn style-btn" id="tiltModeBtn" onclick="togglePitchView()">📐 視点: ナビ3D</button>
           <button class="map-mini-btn active" id="headingModeBtn" onclick="toggleHeadingUp()">🧭 ヘディングUP</button>
           <button class="map-mini-btn" id="recenterBtn" onclick="recenterMap()">🎯 現在地へ戻る</button>
+          <button class="map-mini-btn garage-btn" onclick="openGarageModal('fav'); toggleMapMenu(false)">🏠 マイガレージ・称号</button>
           <button class="map-mini-btn tut-btn" onclick="openTutorial(0); toggleMapMenu(false)">🎮 チュートリアル</button>
           <button class="map-mini-btn sos" id="sosHoldBtn"
             onpointerdown="startSosHold()"
@@ -103,7 +107,7 @@
       </div>
 
       <!-- 右下: 走行ログ＆GPSステータスHUD -->
-      <div class="gps-coord-hud" onclick="openLogModal()">
+      <div class="gps-coord-hud" onclick="openGarageModal('log')">
         <div><span class="gps-status-dot" id="gpsDot"></span><span id="gpsStatusText">GPS未接続</span></div>
         <div id="tripSummaryText">走行: 0.0km / 00:00</div>
         <div id="headingText">方位: --° / 標高: --m</div>
@@ -112,25 +116,26 @@
 
     <!-- クイックツールバー -->
     <nav class="quick-strip">
+      <button class="chip-btn setting-chip" onclick="openGarageModal('settings')">🎛️ 案内距離設定</button>
+      <button class="chip-btn garage-chip" onclick="openGarageModal('fav')">🏠 ガレージ/称号</button>
       <button class="chip-btn" id="quickThemeBtn" onclick="toggleMapTheme()">🌙 夜間ダーク</button>
-      <button class="chip-btn" onclick="searchNearbyPOI('fuel')">⛽ 周辺GS</button>
-      <button class="chip-btn" onclick="searchNearbyPOI('convenience')">🏪 コンビニ</button>
-      <button class="chip-btn" onclick="searchNearbyPOI('toilets')">🚻 トイレ/道の駅</button>
-      <button class="chip-btn" onclick="openLogModal()">📊 走行ログ</button>
+      <button class="chip-btn" onclick="searchNearbyPOI('fuel', true)">⛽ 最寄GS経由</button>
+      <button class="chip-btn" onclick="searchNearbyPOI('convenience', true)">🏪 コンビニ経由</button>
+      <button class="chip-btn" onclick="searchNearbyPOI('toilets', false)">🚻 トイレ/道の駅</button>
       <button class="chip-btn" id="demoBtn0" onclick="selectScenario(0)">デモ① 右折</button>
       <button class="chip-btn" id="demoBtn1" onclick="selectScenario(1)">デモ② 路駐</button>
-      <button class="chip-btn" id="demoBtn2" onclick="selectScenario(2)">デモ③ 峠防寒</button>
+      <button class="chip-btn" id="demoBtn2" onclick="selectScenario(2)">デモ③ 急カーブ</button>
     </nav>
 
     <!-- 5. グローブ対応・大型コントロールフッター -->
     <footer class="glove-footer">
-      <button class="glove-btn standby-btn" id="mainNextBtn" onclick="triggerNextStep()">
-        <span id="mainNextLabel">🔍 目的地を入力</span>
-        <span class="sub" id="mainNextSub">案内待機中</span>
+      <button class="glove-btn standby-btn" id="mainNextBtn" onclick="handleMainLeftBtn()">
+        <span id="mainNextLabel">🎙️ 音声指令</span>
+        <span class="sub" id="mainNextSub">目的地・経由地</span>
       </button>
       <button class="glove-btn" id="gpsToggleBtn" onclick="toggleGPS()">
         <span id="gpsBtnLabel">📡 GPS開始</span>
-        <span class="sub" id="gpsBtnSub">気象・追従連動</span>
+        <span class="sub" id="gpsBtnSub">自動案内＆リルート</span>
       </button>
       <button class="glove-btn" onclick="cycleBikeClass()">
         <span id="bikeClassLabel">🏍️ 中型(400cc)</span>
@@ -160,28 +165,109 @@
         </div>
       </div>
       <div class="tut-desc" id="tutDesc">
-        難しいAPIキー登録は一切不要です！まずはスマホの音声合成機能（Web Speech API）をオンにして、走行中に聞く先導アナウンスをテストしましょう。
+        APIキー登録は不要です！まずはスマホの音声案内をオンにして、先導アナウンスをテストしましょう。
         <div class="tut-api-pill" id="tutApiTag">使用API: Web Speech API（登録不要・無料）</div>
       </div>
       <button class="tut-action-btn" id="tutActionBtn" onclick="runTutorialStep()">🔊 音声テストを実行して次へ ▶</button>
     </div>
   </div>
 
-  <!-- 走行ログモーダル -->
-  <div class="modal-backdrop" id="logModal" onclick="if(event.target===this) closeModals()">
-    <div class="modal-card">
+  <!-- マイガレージ・ナビ距離設定・走行履歴・ライダー称号モーダル -->
+  <div class="modal-backdrop" id="garageModal" onclick="if(event.target===this) closeModals()">
+    <div class="modal-card modal-tall">
       <div class="modal-title">
-        <span>📊 ツーリング・テレメトリー</span>
+        <span>🏠 マイガレージ ＆ ナビ設定</span>
         <button class="map-mini-btn" onclick="closeModals()">✕</button>
       </div>
-      <div class="stat-grid">
-        <div class="stat-box"><div class="num" id="statDist">0.0 km</div><div class="lbl">総走行距離</div></div>
-        <div class="stat-box"><div class="num" id="statTime">00:00</div><div class="lbl">連続走行時間</div></div>
-        <div class="stat-box"><div class="num" id="statMaxSpeed">0 km/h</div><div class="lbl">最高速度</div></div>
-        <div class="stat-box"><div class="num" id="statMaxLean">L0° / R0°</div><div class="lbl">最大バンク角</div></div>
+
+      <div class="modal-tabs four-tabs">
+        <button class="tab-btn active" id="tabBtnSettings" onclick="switchGarageTab('settings')">🎛️ 案内設定</button>
+        <button class="tab-btn" id="tabBtnFav" onclick="switchGarageTab('fav')">📍 お気に入り</button>
+        <button class="tab-btn" id="tabBtnLog" onclick="switchGarageTab('log')">📊 走行履歴</button>
+        <button class="tab-btn" id="tabBtnBadge" onclick="switchGarageTab('badge')">🏆 称号</button>
       </div>
-      <button class="modal-action-btn btn-cyan" onclick="resetTripLog()">ログをリセット</button>
-      <button class="modal-action-btn btn-slate" onclick="closeModals()">閉じる</button>
+
+      <!-- タブ0: 案内距離・逸脱感度カスタマイズ設定 -->
+      <div class="tab-pane active" id="paneSettings">
+        <div class="scroll-box settings-scroll">
+          <div class="setting-group">
+            <div class="setting-head">
+              <span>① 車線誘導（1回目・早め予告）</span>
+              <span class="setting-val" id="valStage1">1000m手前</span>
+            </div>
+            <input type="range" class="nav-slider" id="sliderStage1" min="600" max="2000" step="100" value="1000" oninput="onSettingSliderChange()" />
+            <div class="setting-hint">「今のうちに右/左車線へ移動」を最初に知らせる距離</div>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-head">
+              <span>② 中間告知（2回目・車線確認）</span>
+              <span class="setting-val" id="valStage2">500m手前</span>
+            </div>
+            <input type="range" class="nav-slider" id="sliderStage2" min="300" max="900" step="50" value="500" oninput="onSettingSliderChange()" />
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-head">
+              <span>③ 減速準備（3回目・ウインカー目安）</span>
+              <span class="setting-val" id="valStage3">200m手前</span>
+            </div>
+            <input type="range" class="nav-slider" id="sliderStage3" min="150" max="350" step="25" value="200" oninput="onSettingSliderChange()" />
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-head">
+              <span>④ 直前案内（4回目・交差点手前）</span>
+              <span class="setting-val" id="valStage4">100m手前</span>
+            </div>
+            <input type="range" class="nav-slider" id="sliderStage4" min="50" max="150" step="10" value="100" oninput="onSettingSliderChange()" />
+          </div>
+
+          <div class="setting-group warn-border">
+            <div class="setting-head">
+              <span>🔄 ルート逸脱リルート判定距離</span>
+              <span class="setting-val warn-txt" id="valRerouteDist">35m外れたら</span>
+            </div>
+            <input type="range" class="nav-slider" id="sliderRerouteDist" min="20" max="80" step="5" value="35" oninput="onSettingSliderChange()" />
+            <div class="setting-hint">数値を小さくするほど即座に再計算します（推奨: 30〜40m）</div>
+          </div>
+
+          <div style="display:flex;gap:6px;margin-top:4px;">
+            <button class="modal-action-btn btn-cyan" style="margin-top:0;" onclick="testVoiceAnnouncement()">🔊 音声テスト</button>
+            <button class="modal-action-btn btn-slate" style="margin-top:0;" onclick="resetNavSettingsDefault()">初期値に戻す</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- タブ1: お気に入りスポット -->
+      <div class="tab-pane" id="paneFav">
+        <div class="fav-add-row">
+          <input type="text" class="dest-input" id="newFavInput" placeholder="登録するスポット名 (例: 道志みち道の駅)" />
+          <button class="route-go-btn" onclick="addFavoriteSpot()">追加</button>
+        </div>
+        <div class="scroll-box" id="favListContainer"></div>
+      </div>
+
+      <!-- タブ2: 今回の走行＆履歴保存 -->
+      <div class="tab-pane" id="paneLog">
+        <div class="stat-grid">
+          <div class="stat-box"><div class="num" id="statDist">0.0 km</div><div class="lbl">今回の走行距離</div></div>
+          <div class="stat-box"><div class="num" id="statTime">00:00</div><div class="lbl">連続走行時間</div></div>
+          <div class="stat-box"><div class="num" id="statMaxSpeed">0 km/h</div><div class="lbl">最高速度</div></div>
+          <div class="stat-box"><div class="num" id="statMaxLean">L0° / R0°</div><div class="lbl">最大バンク角</div></div>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+          <button class="modal-action-btn btn-green" style="margin-top:0;" onclick="saveCurrentRideHistory()">💾 今回のログを保存</button>
+          <button class="modal-action-btn btn-slate" style="margin-top:0;" onclick="resetTripLog()">リセット</button>
+        </div>
+        <div class="sub-sec-title">過去のツーリング履歴</div>
+        <div class="scroll-box" id="historyListContainer"></div>
+      </div>
+
+      <!-- タブ3: ライダー称号バッジ -->
+      <div class="tab-pane" id="paneBadge">
+        <div class="badge-grid" id="badgeGridContainer"></div>
+      </div>
     </div>
   </div>
 
